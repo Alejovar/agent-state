@@ -1,0 +1,18 @@
+{
+  "name": "agent-state",
+  "description": "Never lose a coding session: verified task memory, automatic recovery after compaction, checkpoints, change maps and scope control. Local-first.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Alejovar"
+  },
+  "homepage": "https://github.com/Alejovar/agent-state",
+  "repository": "https://github.com/Alejovar/agent-state",
+  "license": "MIT",
+  "keywords": [
+    "memory",
+    "context",
+    "recovery",
+    "checkpoint",
+    "handoff"
+  ]
+}

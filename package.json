@@ -1,0 +1,61 @@
+{
+  "name": "agent-state",
+  "version": "0.1.0",
+  "description": "Local-first memory, recovery and control layer for AI coding agents. Lose your Claude Code session, recover the working context in seconds.",
+  "type": "module",
+  "bin": {
+    "agent-state": "dist/cli.js"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "build:test": "tsc -p tsconfig.test.json",
+    "test": "npm run build:test && node --test --test-concurrency=4 \"build-test/test/**/*.test.js\"",
+    "typecheck": "tsc -p tsconfig.test.json --noEmit",
+    "prepublishOnly": "npm run build && npm test",
+    "build:plugin": "npm run build && node scripts/build-plugin.mjs"
+  },
+  "keywords": [
+    "ai",
+    "agents",
+    "claude-code",
+    "codex",
+    "cursor",
+    "context",
+    "memory",
+    "recovery",
+    "checkpoint",
+    "llm",
+    "developer-tools",
+    "cli"
+  ],
+  "author": "Alejovar",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Alejovar/agent-state.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Alejovar/agent-state/issues"
+  },
+  "homepage": "https://github.com/Alejovar/agent-state#readme",
+  "dependencies": {
+    "yaml": "^2.9.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.0",
+    "typescript": "^5.9.0"
+  },
+  "optionalDependencies": {
+    "@anthropic-ai/sdk": "^0.128.0"
+  }
+}

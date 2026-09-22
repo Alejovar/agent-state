@@ -1,0 +1,28 @@
+name: Bug report
+description: Something doesn't work as documented
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: Include the command you ran and its output. Please check that nothing sensitive is included.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+  - type: input
+    id: version
+    attributes:
+      label: agent-state version (`agent-state --version`)
+  - type: input
+    id: env
+    attributes:
+      label: OS / Node version / agent (Claude Code version, Codex…)
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of `agent-state doctor`
+      render: text

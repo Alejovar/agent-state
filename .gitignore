@@ -1,0 +1,8 @@
+.env
+prompt.md
+node_modules/
+dist/
+build-test/
+.agent-state/
+*.log
+coverage/

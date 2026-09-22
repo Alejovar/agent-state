@@ -1,0 +1,21 @@
+name: Feature request
+description: Suggest an improvement or a new agent adapter
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+  - type: checkboxes
+    id: principles
+    attributes:
+      label: Fits the project principles
+      options:
+        - label: Works locally without a cloud service
+        - label: Deterministic where possible (AI only for semantic tasks)

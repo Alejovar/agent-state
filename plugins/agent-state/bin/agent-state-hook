@@ -1,0 +1,7 @@
+#!/bin/sh
+# Forwards Claude Code hook payloads to the agent-state CLI when it is installed.
+# Projects without .agent-state/ are ignored by the CLI itself.
+if command -v agent-state >/dev/null 2>&1; then
+  exec agent-state hook claude-code
+fi
+exit 0

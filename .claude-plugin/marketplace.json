@@ -1,0 +1,17 @@
+{
+  "name": "agent-state",
+  "owner": {
+    "name": "Alejovar",
+    "url": "https://github.com/Alejovar"
+  },
+  "plugins": [
+    {
+      "name": "agent-state",
+      "source": "./plugins/agent-state",
+      "description": "Never lose a coding session: verified task memory, automatic recovery after compaction, checkpoints, change maps and scope control. Local-first.",
+      "category": "productivity",
+      "license": "MIT",
+      "keywords": ["memory", "context", "recovery", "checkpoint"]
+    }
+  ]
+}
