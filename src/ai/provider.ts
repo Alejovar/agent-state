@@ -127,6 +127,8 @@ export class CommandProvider implements AIProvider {
         if (!stdout.trim()) return reject(new AIError("AI command produced no output"));
         resolve(stdout.trim());
       });
+      // Commands that ignore stdin may exit before reading it; that is not an error.
+      child.stdin.on("error", () => {});
       child.stdin.end(`${system}\n\n${prompt}`);
     });
   }
