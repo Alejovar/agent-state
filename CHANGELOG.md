@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.0
+
+- **Just-in-time reminders:** right before the agent edits a file, it receives the decisions, failed approaches and open issues linked to that file (explicit `--file` links or mentions of its name); before rerunning a command that failed, it gets the reason. Delivered once per context, never blocking. Claude Code gets them before the edit (`PreToolUse` additional context); Cursor and Gemini CLI with the tool result.
+- **Fresh start before context rot:** at `context.fresh_at` (60% by default) the task state is saved and the user is told to `/clear`; the clean context receives just that state. New `/fresh` slash command.
+- The agent is told once per session how to record decisions and failed approaches; `init --claude` allows exactly `agent-state decide` and `agent-state note` without a permission prompt.
+- Config: `reminders.enabled`, `context.fresh_at` (replaces `warn_at`, which is still honored), `recovery.agent_guidance`.
+
 ## 0.2.0
 
 - **Cursor adapter** (`agent-state init --cursor`): sessionStart, beforeSubmitPrompt, pre/postToolUse (+Failure), afterFileEdit, preCompact with exact context usage, subagents, stop, sessionEnd. Recovery is re-injected after compaction through the next tool result. Scope policies map to allow/deny.

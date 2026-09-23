@@ -23,7 +23,7 @@ test("cursor: prompt → task, tools, shell exit codes, compaction re-injection"
   const repo = makeRepo(AUTH_APP);
   try {
     const p = initProject(repo);
-    assert.deepEqual(cur(p, { hook_event_name: "sessionStart", session_id: "conv-1", composer_mode: "agent" }), {});
+    assert.match(cur(p, { hook_event_name: "sessionStart", session_id: "conv-1", composer_mode: "agent" }).additional_context, /agent-state decide/);
     assert.deepEqual(cur(p, { hook_event_name: "beforeSubmitPrompt", prompt: "Add rate limiting to login" }), { continue: true });
     const [t] = new TaskService(p).list();
     assert.equal(t!.goal, "Add rate limiting to login");
@@ -95,7 +95,7 @@ test("gemini: session, prompt, tools, todos, exit codes, PreCompress re-injectio
   const repo = makeRepo(AUTH_APP);
   try {
     const p = initProject(repo);
-    assert.deepEqual(gem(p, { hook_event_name: "SessionStart", source: "startup" }), {});
+    assert.match(gem(p, { hook_event_name: "SessionStart", source: "startup" }).hookSpecificOutput.additionalContext, /agent-state decide/);
     assert.deepEqual(gem(p, { hook_event_name: "BeforeAgent", prompt: "Migrate sessions to Redis cluster" }), {});
     const f = join(repo.root, "src/auth/cluster.ts");
     gem(p, { hook_event_name: "BeforeTool", tool_name: "write_file", tool_input: { file_path: f, content: "x" } });

@@ -120,6 +120,22 @@ flowchart LR
 - Referenced file no longer exists: src/auth/callback.ts
 ```
 
+### Long sessions stay sharp
+
+Around the two-hour mark, long sessions degrade: the agent forgets earlier decisions and writes code that contradicts what it did an hour ago ("context rot"). agent-state works against that in two ways:
+
+- **Just-in-time reminders.** Right before the agent edits a file, agent-state hands it the decisions, failed approaches and open issues linked to that file. Before it reruns a command that failed, it gets the reason. Each reminder is delivered once per context, costs a few lines, and never blocks anything:
+
+  ```text
+  [agent-state] Reminder before editing src/session.ts:
+  - decision #1: Keep server-side Redis sessions; do not switch to JWT (because tokens cannot be revoked on logout). Rejected: JWT.
+  ```
+
+  In our live test, asked only to make `session.ts` "simpler and more scalable", Claude kept Redis and explained that it was aligning with the decision against JWT.
+- **Fresh start at the right time.** At 60% of the context budget, agent-state saves the task state and suggests `/clear` (or run `/fresh` yourself). The new context starts with ~1.5 KB of verified state instead of 120k tokens of old conversation: better answers, fewer tokens.
+
+The agent is also told, once per session, to record decisions and failed approaches (`agent-state decide` / `agent-state note tried`). `init --claude` allows exactly those two commands so they run without a permission prompt; they only write to `.agent-state/`.
+
 ### Evidence levels: guesses are never presented as facts
 
 | Mark | Meaning |
@@ -135,6 +151,7 @@ flowchart LR
 
 | | Command | What it does |
 |---|---|---|
+| 🧷 | reminders · `/fresh` | Related decisions and failed approaches surface right before the agent edits a file; a clean restart is suggested before long contexts degrade |
 | 🧠 | `compact` · `recover` · `continue` · `handoff` | Compact state → verified recovery → resume the agent. Also available as `/recover` and `/handoff` in Claude Code |
 | 💾 | `checkpoint` · `checkpoints` · `restore` | Snapshots of the working tree, staged changes, untracked files and task state, stored as private git objects. Restore shows a dry-run and conflicts, asks first, and **takes an automatic backup** so a restore can be undone. It never moves HEAD |
 | 🗺 | `changes` | Change map: direct, created, deleted, **indirectly affected** (via the import graph), tests, config, infra, docs, dependency diffs |
@@ -215,7 +232,7 @@ Relevant files: docs/architecture.md:3
 
 ## Claude Code integration
 
-`agent-state init --claude` writes hooks to `.claude/settings.local.json` (use `integrate claude-code --shared` for the committed `settings.json`) and adds slash commands: `/recover` `/handoff` `/checkpoint` `/restore` `/changes` `/impact` `/history` `/why` `/drift` `/index`.
+`agent-state init --claude` writes hooks to `.claude/settings.local.json` (use `integrate claude-code --shared` for the committed `settings.json`) and adds slash commands: `/fresh` `/recover` `/handoff` `/checkpoint` `/restore` `/changes` `/impact` `/history` `/why` `/drift` `/index`.
 
 | Hook | What agent-state does |
 |---|---|
@@ -225,7 +242,8 @@ Relevant files: docs/architecture.md:3
 | `PreCompact` | **saves a verified recovery state before Claude compacts** |
 | `SessionStart` (`compact`/`resume`/`clear`) | **re-injects the recovery context** so Claude continues with its memory intact |
 | `SessionStart` (`startup`) | a one-line notice if a task is unfinished (configurable: `full`/`brief`/`off`) |
-| `Stop` | estimates context pressure; warns at 80%, generates recovery at 94% |
+| `PreToolUse` (reminders) | adds the decisions / failed approaches linked to the file being edited, or why a command failed last time |
+| `Stop` | estimates context pressure; at 60% saves the state and suggests `/clear`, at 94% generates recovery |
 | `SessionEnd` | leaves a fresh recovery state behind |
 
 It uses documented hook events only. Anything uncertain, such as the token estimate read from the transcript, is isolated in the adapter and degrades to "unknown". Hooks take about 50 ms, never block the agent on errors (errors go to `.agent-state/reports/hook-errors.log`) and never interrupt it unless you pick the `block` scope policy.
@@ -268,8 +286,10 @@ recovery:
   inject_on_startup: brief # full | brief | off
 context:
   window_tokens: 200000
-  warn_at: 0.80
+  fresh_at: 0.60           # save state + suggest /clear before quality degrades
   compact_at: 0.94
+reminders:
+  enabled: true            # just-in-time reminders before edits
 scope:
   policy: warn             # warn | confirm | block
 redaction:

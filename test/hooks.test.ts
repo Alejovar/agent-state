@@ -12,7 +12,9 @@ test("a prompt creates a task; later sessions attach to it; compaction re-inject
   const repo = makeRepo(AUTH_APP);
   try {
     const p = initProject(repo);
-    assert.equal(hook(p, { hook_event_name: "SessionStart", source: "startup" }).stdout, undefined, "no task yet → nothing injected");
+    const first = hook(p, { hook_event_name: "SessionStart", source: "startup" }).stdout!;
+    assert.match(first, /agent-state decide/, "no task yet → only the one-line guidance");
+    assert.doesNotMatch(first, /RECOVERY CONTEXT|Unfinished task/);
     hook(p, { hook_event_name: "UserPromptSubmit", prompt: "/help" });
     assert.equal(new TaskService(p).list().length, 0, "slash commands do not create tasks");
     hook(p, { hook_event_name: "UserPromptSubmit", prompt: "Add password reset flow" });

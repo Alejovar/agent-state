@@ -74,8 +74,8 @@ const TECH: Tech[] = [
   { name: "Tokio", mention: /\bTokio\b/, deps: /^tokio$/ },
 ];
 
-const NEGATION = /\b(not|no longer|never|don't|do not|doesn't|instead of|rather than|replaced|removed|migrat\w* (away )?from|deprecated|avoid|without|legacy|previously|used to|was using|TODO|planned|will|could|may|might|consider)\b/i;
-const EXAMPLE = /\b(e\.g\.|for example|such as|example|contradict\w*|drift)\b/i;
+const NEGATION = /\b(not|against|no longer|never|don't|do not|doesn't|instead of|rather than|replaced|removed|migrat\w* (away )?from|deprecated|avoid|without|legacy|previously|used to|was using|TODO|planned|will|could|may|might|consider)\b/i;
+const EXAMPLE = /\b(e\.g\.|for example|such as|example|contradict\w*|drift|demo|in our (?:live )?test)\b/i;
 const USAGE = /\b(uses?|using|built (on|with)|powered by|backed by|stores?|persist\w*|based on|relies on|via|with|runs? on|implemented (with|using)|we use|stack|database|auth\w*|sessions?)\b/i;
 
 function loadDeps(project: Project, files: string[]): Set<string> {

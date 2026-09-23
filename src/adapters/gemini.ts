@@ -85,6 +85,7 @@ export class GeminiHookHandler {
         return out({});
       }
       case "AfterTool": {
+        let reminder: string | null = null;
         if (tool === SHELL) {
           const command = typeof ti.command === "string" ? ti.command : null;
           const id = command ? `${SHELL}:${command}` : s.latestPendingId("shell");
@@ -97,10 +98,11 @@ export class GeminiHookHandler {
           const rel = typeof ti.file_path === "string" ? s.relPath(ti.file_path, cwd) : null;
           const id = rel ? `${tool}:${rel}` : s.latestPendingId(tool);
           if (!llmText(input.tool_response).error) s.afterFileChange(id, tool, rel);
+          if (rel) reminder = s.reminders({ path: rel });
         } else if (tool === "write_todos" && Array.isArray(ti.todos)) {
           s.todos((ti.todos as Record<string, unknown>[]).map((t) => ({ content: String(t.description ?? t.content ?? ""), status: t.status })));
         }
-        return ctxOut("AfterTool", s.takePendingInjection());
+        return ctxOut("AfterTool", [s.takePendingInjection(), reminder].filter(Boolean).join("\n\n") || null);
       }
       case "PreCompress": {
         const msg = s.compacting(input.trigger ?? "unknown", { reinjectLater: true });

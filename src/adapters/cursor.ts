@@ -119,6 +119,7 @@ export class CursorHookHandler {
       case "postToolUse":
       case "postToolUseFailure": {
         const success = input.hook_event_name === "postToolUse";
+        let reminder: string | null = null;
         if (tool === "Shell" && typeof ti.command === "string") {
           const res = shellOutput(input.tool_output);
           s.commandFinished(
@@ -128,11 +129,13 @@ export class CursorHookHandler {
           );
         } else if (FILE_TOOLS.has(tool) && success) {
           const fp = toolPath(ti);
-          s.afterFileChange(id, tool, fp ? s.relPath(fp, cwd) : null, tool === "Delete" ? "deleted" : undefined);
+          const rel = fp ? s.relPath(fp, cwd) : null;
+          s.afterFileChange(id, tool, rel, tool === "Delete" ? "deleted" : undefined);
+          if (rel && tool !== "Delete") reminder = s.reminders({ path: rel });
         } else if (/todo/i.test(tool) && success && Array.isArray(ti.todos)) {
           s.todos((ti.todos as Record<string, unknown>[]).map((t) => ({ content: String(t.content ?? t.description ?? ""), status: t.status })));
         }
-        const ctx = s.takePendingInjection();
+        const ctx = [s.takePendingInjection(), reminder].filter(Boolean).join("\n\n");
         return out(ctx ? { additional_context: ctx } : {});
       }
       case "afterFileEdit": {

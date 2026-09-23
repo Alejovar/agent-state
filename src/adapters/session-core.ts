@@ -9,7 +9,8 @@ import { detectTestRunner, parseTestOutput } from "../core/testdetect.js";
 import { compactTask, recoverTask } from "../core/compact.js";
 import { checkPath, effectivePolicy, loadContract } from "../core/scope.js";
 import type { ScopePolicy } from "../core/config.js";
-import type { TodoItem } from "../core/events.js";
+import type { DecisionPayload, NotePayload, TodoItem } from "../core/events.js";
+import { reduceState } from "../core/state.js";
 import { genericFraming } from "./adapter.js";
 
 /**
@@ -40,6 +41,8 @@ interface SessionFile {
   todos: Record<string, TodoItem>;
   /** Recovery context waiting to be injected (agents without a post-compaction SessionStart). */
   inject_pending?: boolean;
+  /** Reminder keys already delivered since the last compaction (so the agent is not nagged). */
+  reminded?: Record<string, string>;
 }
 
 /** Read-only commands not worth recording as activity. */
@@ -127,6 +130,16 @@ export class AgentSession {
       payload: { ...meta, source, head: isRepo ? git.head() : null, branch: isRepo ? git.branch() : null },
     });
     this.project.setCurrent({ session_id: this.session_id, agent_id: this.agent, task_id: task?.id ?? null });
+    // A new or cleared context has seen none of the earlier reminders.
+    this.withSession((s) => {
+      s.reminded = {};
+    });
+    const guidance = this.project.config.recovery.agent_guidance ? GUIDANCE : null;
+    const body = this.startContext(task, source);
+    return [body, guidance].filter(Boolean).join("\n\n") || null;
+  }
+
+  private startContext(task: Task | null, source: StartSource): string | null {
     if (!task) return null;
 
     if (task.status === "COMPACTED" || task.status === "PAUSED") {
@@ -188,6 +201,7 @@ export class AgentSession {
     const r = compactTask(this.project, task, { agent_id: this.actor, session_id: this.session_id });
     this.withSession((s) => {
       s.pressure_level = 0;
+      s.reminded = {};
       if (opts.reinjectLater) s.inject_pending = true;
     });
     const rel = toProjectPath(this.project.root, r.paths.md) ?? r.paths.md;
@@ -207,6 +221,72 @@ export class AgentSession {
     const r = recoverTask(this.project, task);
     this.project.emit({ type: "RECOVERY_GENERATED", ...this.base(task), payload: { injected: true, source: "compact", bytes: r.state.stats.markdown_bytes } });
     return genericFraming(r.markdown, r.state);
+  }
+
+  // ---------------------------------------------------------------- reminders
+
+  /**
+   * Just-in-time memory: the decisions, failed approaches and open issues that
+   * concern the file the agent is about to edit (or the command it is about to
+   * rerun), delivered once per context so long sessions don't contradict
+   * themselves ("context rot"). Deterministic: explicit file links, mentions of
+   * the file's name, and the last result of the same command.
+   */
+  reminders(target: { path?: string; command?: string }): string | null {
+    if (!this.project.config.reminders.enabled) return null;
+    const task = this.task();
+    const db = this.project.db();
+    const items: { key: string; text: string }[] = [];
+
+    if (target.path) {
+      const path = target.path;
+      const base = path.split("/").pop() ?? path;
+      const stem = base.replace(/\.[^.]+$/, "");
+      const specificStem = stem.length >= 4 && !GENERIC_STEMS.has(stem.toLowerCase());
+      const mentions = (text: string) => {
+        const t = text.toLowerCase();
+        return t.includes(path.toLowerCase()) || t.includes(base.toLowerCase()) || (specificStem && new RegExp(`\\b${escapeRe(stem.toLowerCase())}\\b`).test(t));
+      };
+      const linked = (files: string[] | undefined) => (files ?? []).some((f) => f === path || (f.endsWith("/") ? path.startsWith(f) : path.startsWith(f + "/")));
+
+      for (const e of db.query({ types: ["DECISION_RECORDED"] })) {
+        const d = e.payload as unknown as DecisionPayload;
+        if (!linked(d.files) && !mentions(`${d.decision} ${d.reason ?? ""}`)) continue;
+        const rejected = d.alternatives?.length ? ` Rejected: ${d.alternatives.join(", ")}.` : "";
+        items.push({ key: `decision:${d.number}`, text: `decision #${d.number}: ${clip(d.decision, 160)}${d.reason ? ` (because ${clip(d.reason, 140)})` : ""}.${rejected}` });
+      }
+      const notes = db.query({ types: ["NOTE_RECORDED"], ...(task ? { task_id: task.id } : {}) });
+      const resolved = new Set(notes.filter((n) => (n.payload as unknown as NotePayload).kind === "resolved").map((n) => String(n.payload.text).toLowerCase()));
+      for (const e of notes) {
+        const n = e.payload as unknown as NotePayload;
+        if (n.kind !== "failed_attempt" && n.kind !== "issue") continue;
+        if (!linked(n.files) && !mentions(n.text)) continue;
+        if (n.kind === "issue" && [...resolved].some((r) => n.text.toLowerCase().includes(r) || r.includes(n.text.toLowerCase()))) continue;
+        items.push({ key: `note:${e.id}`, text: `${n.kind === "issue" ? "open issue" : "already tried and failed"}: ${clip(n.text, 200)}` });
+      }
+    }
+
+    if (target.command && task) {
+      const cmd = target.command.trim().replace(/\s+/g, " ");
+      const ws = reduceState(task.id, db.query({ task_id: task.id, types: ["COMMAND_EXECUTED", "TEST_FINISHED"] }));
+      const last = [...ws.commands.failing].reverse().find((c) => c.command.trim().replace(/\s+/g, " ") === cmd);
+      if (last) {
+        const why = lastLine(last.output_tail ?? "");
+        items.push({ key: `cmd:${cmd}:${last.ts}`, text: `\`${clip(cmd, 80)}\` failed last time${why ? `: ${why}` : ""}. Change the approach rather than rerunning it unchanged.` });
+      }
+    }
+
+    if (!items.length) return null;
+    const fresh = this.withSession((s) => {
+      s.reminded ??= {};
+      const now = new Date().toISOString();
+      const out = items.filter((i) => !s.reminded![i.key]);
+      for (const i of out) s.reminded![i.key] = now;
+      return out;
+    });
+    if (!fresh.length) return null;
+    const subject = target.path ? `before editing ${target.path}` : "before running this command";
+    return clip(`[agent-state] Reminder ${subject}:\n` + fresh.slice(0, 4).map((i) => `- ${i.text}`).join("\n"), 900);
   }
 
   // ---------------------------------------------------------------- tools
@@ -368,12 +448,14 @@ export class AgentSession {
   }
 
   /**
-   * Context pressure from a usage ratio (exact or estimated). Warns once when
-   * crossing warn_at; generates a recovery state when crossing compact_at.
+   * Context pressure from a usage ratio (exact or estimated). At fresh_at the
+   * state is saved and the user is told to continue in a clean context (/clear)
+   * before quality degrades; at compact_at a recovery state is saved in case
+   * the agent compacts on its own. Each level is announced once.
    */
   pressure(ratio: number, tokens: number | null, estimated: boolean): string | null {
     const cfg = this.project.config.context;
-    const level = ratio >= cfg.compact_at ? 2 : ratio >= cfg.warn_at ? 1 : 0;
+    const level = ratio >= cfg.compact_at ? 2 : ratio >= cfg.fresh_at ? 1 : 0;
     const prev = this.withSession((s) => {
       const p = s.pressure_level ?? 0;
       s.pressure_level = level;
@@ -382,13 +464,34 @@ export class AgentSession {
     if (level <= prev) return null;
     const task = this.task();
     const pct = Math.round(ratio * 100);
-    const approx = estimated ? "~" : "";
-    const note = estimated ? " (estimated)" : "";
+    const usage = `context usage ${estimated ? "~" : ""}${pct}%${estimated ? " (estimated)" : ""}`;
     this.project.emit({ type: "CONTEXT_PRESSURE", ...this.base(task), payload: { tokens, ratio, level, estimated } });
-    if (level === 1) return `agent-state: context usage ${approx}${pct}%${note}. Consider running \`agent-state compact\`.`;
-    if (!task) return null;
+    if (!task) return level === 1 ? `agent-state: ${usage}. Long contexts degrade; consider /clear and a fresh start.` : null;
     const r = compactTask(this.project, task, { agent_id: this.actor, session_id: this.session_id, status: false });
     const rel = toProjectPath(this.project.root, r.paths.md) ?? r.paths.md;
-    return `agent-state: context usage ${approx}${pct}%${note}. A compact recovery state has been generated: ${rel}`;
+    const size = r.state.stats.markdown_bytes >= 1024 ? `${(r.state.stats.markdown_bytes / 1024).toFixed(1)} KB` : `${r.state.stats.markdown_bytes} B`;
+    if (level === 1) {
+      return `agent-state: ${usage}. Task #${task.number} state saved (${size}). To keep quality high, type /clear: the new context starts with just that state instead of the whole conversation.`;
+    }
+    return `agent-state: ${usage}. A compact recovery state has been generated: ${rel}`;
   }
+}
+
+/** One line at session start so the agent feeds the memory it later relies on. */
+const GUIDANCE =
+  "[agent-state] This project keeps task memory across sessions. When you make a design decision, run " +
+  '`agent-state decide "<decision>" --reason "<why>" [--rejected "<alternative>"] [--file <path>]`; ' +
+  'when an approach fails, `agent-state note tried "<what failed and why>" [--file <path>]`. ' +
+  "Keep it to what a future session must not get wrong.";
+
+const GENERIC_STEMS = new Set(["index", "main", "utils", "util", "helpers", "types", "config", "test", "tests", "readme", "package", "mod", "init", "__init__", "app", "lib", "common", "constants"]);
+
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function lastLine(output: string): string {
+  const lines = output.split("\n").map((l) => l.trim()).filter(Boolean);
+  const err = [...lines].reverse().find((l) => /error|fail|exception|cannot|not found|denied/i.test(l));
+  return clip(err ?? lines.at(-1) ?? "", 140);
 }

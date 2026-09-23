@@ -12,11 +12,20 @@ export interface Config {
     auto_inject: boolean;
     /** What to inject on a fresh agent start while a task is unfinished: full context, a brief notice, or nothing. */
     inject_on_startup: "full" | "brief" | "off";
+    /** Tell the agent (once per session) how to record decisions and failed approaches. */
+    agent_guidance: boolean;
+  };
+  reminders: {
+    /** Remind the agent of related decisions/failed approaches right before it edits a file or reruns a failing command. */
+    enabled: boolean;
   };
   context: {
     /** Context window of the agent model, in tokens, used to estimate pressure. */
     window_tokens: number;
-    warn_at: number;
+    /** Suggest starting fresh (/clear) with the saved state before quality degrades ("context rot"). */
+    fresh_at: number;
+    /** @deprecated kept for older configs; used as fresh_at when fresh_at is absent. */
+    warn_at?: number;
     compact_at: number;
   };
   scope: {
@@ -50,8 +59,9 @@ export interface Config {
 
 export const DEFAULT_CONFIG: Config = {
   version: 1,
-  recovery: { max_bytes: 6000, auto_inject: true, inject_on_startup: "brief" },
-  context: { window_tokens: 200_000, warn_at: 0.8, compact_at: 0.94 },
+  recovery: { max_bytes: 6000, auto_inject: true, inject_on_startup: "brief", agent_guidance: true },
+  reminders: { enabled: true },
+  context: { window_tokens: 200_000, fresh_at: 0.6, compact_at: 0.94 },
   scope: { policy: "warn" },
   redaction: { patterns: [] },
   privacy: { record_prompts: true, max_output_chars: 2000 },
@@ -71,8 +81,11 @@ function merge<T>(base: T, over: unknown): T {
 
 export function loadConfig(path: string): Config {
   if (!existsSync(path)) return structuredClone(DEFAULT_CONFIG);
-  const parsed = YAML.parse(readFileSync(path, "utf8")) as unknown;
-  return merge(structuredClone(DEFAULT_CONFIG), parsed);
+  const parsed = YAML.parse(readFileSync(path, "utf8")) as { context?: { fresh_at?: number; warn_at?: number } } | null;
+  const cfg = merge(structuredClone(DEFAULT_CONFIG), parsed);
+  // Older configs only had warn_at: honor it as the fresh-start threshold.
+  if (parsed?.context?.fresh_at === undefined && typeof parsed?.context?.warn_at === "number") cfg.context.fresh_at = parsed.context.warn_at;
+  return cfg;
 }
 
 export function writeDefaultConfig(path: string): void {
@@ -83,10 +96,14 @@ recovery:
   max_bytes: 6000        # hard budget for recovery context handed to an agent
   auto_inject: true      # re-inject recovery context after the agent compacts, resumes or clears
   inject_on_startup: brief  # full | brief | off — on a fresh start while a task is unfinished
+  agent_guidance: true   # tell the agent how to record decisions and failed approaches
+
+reminders:
+  enabled: true          # remind the agent of related decisions right before it edits a file
 
 context:
-  window_tokens: 200000  # model context window used to estimate context pressure
-  warn_at: 0.80          # suggest \`agent-state compact\`
+  window_tokens: 200000  # context budget used to measure pressure (quality tends to drop well before 1M)
+  fresh_at: 0.60         # save state and suggest /clear to continue fresh, before "context rot" sets in
   compact_at: 0.94       # generate a recovery state automatically
 
 scope:

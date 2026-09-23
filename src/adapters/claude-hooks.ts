@@ -93,12 +93,14 @@ export class ClaudeHookHandler {
       case "PreToolUse": {
         if (tool === "Bash" && typeof ti.command === "string") {
           s.commandStarted(id, ti.command);
-          return { exitCode: 0 };
+          return preToolOutput(null, s.reminders({ command: ti.command }));
         }
         if (FILE_TOOLS.has(tool)) {
           const rel = filePath(s, ti, cwd);
           if (!rel) return { exitCode: 0 };
-          return gateOutput(s.beforeFileChange(id, tool, rel));
+          const gate = s.beforeFileChange(id, tool, rel);
+          // A denied edit needs no reminder; everything else gets the relevant memory first.
+          return preToolOutput(gate, gate?.policy === "block" ? null : s.reminders({ path: rel }));
         }
         return { exitCode: 0 };
       }
@@ -165,19 +167,20 @@ function filePath(s: AgentSession, ti: Record<string, unknown>, cwd: string): st
   return fp ? s.relPath(fp, cwd) : null;
 }
 
-function gateOutput(gate: ScopeGate | null): HookResult {
-  if (!gate) return { exitCode: 0 };
-  if (gate.policy === "block") {
-    return json({
-      hookSpecificOutput: {
-        hookEventName: "PreToolUse",
-        permissionDecision: "deny",
-        permissionDecisionReason: `agent-state scope policy: ${gate.reason}. Update the contract with \`agent-state scope allow <glob>\` if this change is intended.`,
-      },
-    });
+/** Combines the scope gate and just-in-time reminders into one PreToolUse response. */
+function preToolOutput(gate: ScopeGate | null, reminder: string | null): HookResult {
+  if (!gate && !reminder) return { exitCode: 0 };
+  const specific: Record<string, unknown> = { hookEventName: "PreToolUse" };
+  const out: Record<string, unknown> = { hookSpecificOutput: specific };
+  if (reminder) specific.additionalContext = reminder;
+  if (gate?.policy === "block") {
+    specific.permissionDecision = "deny";
+    specific.permissionDecisionReason = `agent-state scope policy: ${gate.reason}. Update the contract with \`agent-state scope allow <glob>\` if this change is intended.`;
+  } else if (gate?.policy === "confirm") {
+    specific.permissionDecision = "ask";
+    specific.permissionDecisionReason = `⚠ Scope expansion: ${gate.reason}.`;
+  } else if (gate) {
+    out.systemMessage = `⚠ agent-state: scope expansion — ${gate.reason}.`;
   }
-  if (gate.policy === "confirm") {
-    return json({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: `⚠ Scope expansion: ${gate.reason}.` } });
-  }
-  return json({ systemMessage: `⚠ agent-state: scope expansion — ${gate.reason}.` });
+  return json(out);
 }

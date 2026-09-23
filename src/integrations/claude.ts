@@ -56,6 +56,19 @@ export function mergeHooks(settings: Record<string, unknown>, cmd: string): Reco
   return { ...settings, hooks };
 }
 
+/**
+ * Lets the agent record decisions and failed approaches without a permission
+ * prompt each time. Only `decide` and `note` are allowed: they append to
+ * .agent-state/ and never touch project files.
+ */
+export function allowMemoryCommands(settings: Record<string, unknown>, cmd: string): Record<string, unknown> {
+  const permissions = { ...((settings.permissions as Record<string, unknown> | undefined) ?? {}) };
+  const allow = new Set(((permissions.allow as string[] | undefined) ?? []).map(String));
+  for (const sub of ["decide", "note"]) allow.add(`Bash(${cmd} ${sub}:*)`);
+  permissions.allow = [...allow];
+  return { ...settings, permissions };
+}
+
 export function removeHooks(settings: Record<string, unknown>): Record<string, unknown> {
   const hooks = { ...((settings.hooks as Record<string, HookEntry[]> | undefined) ?? {}) };
   for (const [event, entries] of Object.entries(hooks)) {
@@ -70,6 +83,11 @@ export function removeHooks(settings: Record<string, unknown>): Record<string, u
 }
 
 export const SLASH_COMMANDS: Record<string, { description: string; hint?: string; run: string; after: string }> = {
+  fresh: {
+    description: "Save the task state so you can continue in a clean context with /clear",
+    run: "compact",
+    after: "Tell the user in one or two lines: the task state is saved, and typing /clear now starts a clean context that automatically receives just that state (better quality, fewer tokens than continuing this long conversation).",
+  },
   recover: {
     description: "Recover the verified working context of the current task",
     hint: "[task-id]",
@@ -159,7 +177,7 @@ export function installClaude(project: Project, opts: { shared?: boolean } = {})
       throw new Error(`${file} is not valid JSON; fix it before installing hooks.`);
     }
   }
-  writeFileSync(file, JSON.stringify(mergeHooks(settings, cmd), null, 2) + "\n");
+  writeFileSync(file, JSON.stringify(allowMemoryCommands(mergeHooks(settings, cmd), cmd), null, 2) + "\n");
   const written: string[] = [];
   for (const [name, spec] of Object.entries(SLASH_COMMANDS)) {
     const p = join(dir, "commands", `${name}.md`);
