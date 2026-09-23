@@ -10,7 +10,7 @@ import { unexpectedFiles } from "../core/scope.js";
 import { activeLimits } from "../core/limits.js";
 import { box, c, ago, kv, formatBytes, confirm } from "../ui/term.js";
 import { gitAvailable } from "../core/git.js";
-import { configError } from "../core/config.js";
+import { nodeSupported } from "../core/runtime.js";
 import { isOurHook, hookConfig } from "../integrations/claude.js";
 import { cursorHooks, geminiHooks } from "../integrations/others.js";
 import { homedir } from "node:os";
@@ -219,9 +219,8 @@ export const doctor: Command = {
   run() {
     const ok = (s: string) => out(`${c.green("✓")} ${s}`);
     const warn = (s: string) => out(`${c.yellow("⚠")} ${s}`);
-    const [major, minor] = process.versions.node.split(".").map(Number) as [number, number];
-    if (major > 22 || (major === 22 && minor >= 13)) ok(`Node ${process.versions.node}`);
-    else warn(`Node ${process.versions.node} — agent-state needs Node ≥ 22.13 (node:sqlite)`);
+    if (nodeSupported()) ok(`Node ${process.versions.node}`);
+    else warn(`Node ${process.versions.node}: agent-state needs Node 22.13+ or 23.4+ (node:sqlite)`);
     if (gitAvailable()) ok("git available");
     else warn("git not found — change tracking and checkpoints are unavailable");
     const project = Project.tryOpen();
@@ -230,8 +229,8 @@ export const doctor: Command = {
       return 1;
     }
     ok(`Project: ${project.root}`);
-    if (configError) {
-      warn(`config.yaml has an error; nothing is being recorded until it is fixed: ${configError}`);
+    if (project.configProblem) {
+      warn(`config.yaml has an error; nothing is being recorded until it is fixed: ${project.configProblem}`);
     }
     const evDir = project.paths.events;
     const files = existsSync(evDir) ? readdirSync(evDir).filter((f) => f.endsWith(".jsonl")) : [];

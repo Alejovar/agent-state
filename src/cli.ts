@@ -4,6 +4,7 @@ import { COMMANDS, findCommand } from "./commands/registry.js";
 import { UsageError } from "./commands/types.js";
 import { ConfigBrokenError, NotInitializedError, Project } from "./core/project.js";
 import { configError } from "./core/config.js";
+import { nodeSupported } from "./core/runtime.js";
 import { CheckpointError } from "./core/checkpoint.js";
 import { GitError } from "./core/git.js";
 import { c } from "./ui/term.js";
@@ -44,14 +45,19 @@ process.stdout.on("error", (err: NodeJS.ErrnoException) => {
   throw err;
 });
 
-const [NODE_MAJOR, NODE_MINOR] = process.versions.node.split(".").map(Number) as [number, number];
-const NODE_OK = NODE_MAJOR > 22 || (NODE_MAJOR === 22 && NODE_MINOR >= 13);
+const NODE_OK = nodeSupported();
 
 async function main(argv: string[]): Promise<number> {
   if (!NODE_OK) {
-    process.stderr.write(`agent-state needs Node.js 22.13 or newer (it uses the built-in node:sqlite). You have ${process.versions.node}.\n`);
-    // Hooks must never break the agent, even on an unsupported runtime.
-    return argv[0] === "hook" ? 0 : 1;
+    process.stderr.write(`agent-state needs Node.js 22.13+ (or 23.4+) for the built-in node:sqlite. You have ${process.versions.node}.\n`);
+    // Hooks must never break the agent, even on an unsupported runtime: answer
+    // with the neutral JSON each agent expects.
+    if (argv[0] === "hook") {
+      if (argv[1] === "cursor") process.stdout.write('{"permission":"allow","continue":true}');
+      else if (argv[1] === "gemini" || argv[1] === "gemini-cli") process.stdout.write("{}");
+      return 0;
+    }
+    return 1;
   }
   const [name, ...rest] = argv;
   // Bare `agent-state` inside a project answers the most common question: where do things stand?

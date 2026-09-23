@@ -10,6 +10,7 @@ import { adapterFor, ADAPTERS } from "../adapters/registry.js";
 import { aiSummary } from "../ai/enhance.js";
 import { c, confirm, formatBytes, ago } from "../ui/term.js";
 import { activeLimits } from "../core/limits.js";
+import { withCli } from "../core/invocation.js";
 import { type Command, parse, out, err, json, UsageError } from "./types.js";
 import { cliAttribution, resolveTask } from "./context.js";
 
@@ -77,7 +78,7 @@ export const recover: Command = {
     const r = recoverTask(project, t, { maxBytes });
     if (values.json) return json(r.state), 0;
     const adapter = adapterFor(values.agent);
-    process.stdout.write(values.raw ? r.markdown : adapter.formatContext(r.markdown, r.state) + "\n");
+    process.stdout.write(withCli(values.raw ? r.markdown : adapter.formatContext(r.markdown, r.state) + "\n"));
     if (process.stderr.isTTY && !r.saved) err(c.dim("(no saved recovery state yet — built from events + repository; run `agent-state compact` to save one)"));
     return 0;
   },
@@ -158,7 +159,7 @@ export const cont: Command = {
     if (stopped) {
       handoff = `Note: the previous agent (${ADAPTERS[stopped.agent_id]?.displayName ?? stopped.agent_id}) stopped because it reached its usage limit. You are taking over the same task; the work so far is in the repository.`;
     }
-    const context = [handoff, adapter.formatContext(r.markdown, r.state)].filter(Boolean).join("\n\n");
+    const context = withCli([handoff, adapter.formatContext(r.markdown, r.state)].filter(Boolean).join("\n\n"));
     if (values.print) return process.stdout.write(context + "\n"), 0;
 
     out(c.bold(`Continue task #${t.number}: ${t.goal}`));

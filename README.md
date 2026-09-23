@@ -261,7 +261,7 @@ Relevant files: docs/architecture.md:3
 | `SessionEnd` | leaves a fresh recovery state behind |
 | `StopFailure` (`rate_limit`) | saves the task and sends a desktop notification: continue in another agent with `agent-state continue` |
 
-It uses documented hook events only. Anything uncertain, such as the token estimate read from the transcript, is isolated in the adapter and degrades to "unknown". Hooks take about 50 ms, never block the agent on errors (errors go to `.agent-state/reports/hook-errors.log`) and never interrupt it unless you pick the `block` scope policy.
+It uses documented hook events only. Anything uncertain, such as the token estimate read from the transcript, is isolated in the adapter and degrades to "unknown". Hooks take roughly 50–75 ms (mostly Node.js startup) and stay flat as history grows; never block the agent on errors (errors go to `.agent-state/reports/hook-errors.log`) and never interrupt it unless you pick the `block` scope policy.
 
 **Help the next session:** Claude (or you) can record the things that matter most:
 
@@ -322,7 +322,7 @@ Compaction is a lossy summary made by the model, inside one session. agent-state
 Those are long-lived instructions you maintain by hand. agent-state tracks *task* state automatically: what changed, what failed, what's next. It even tells you when CLAUDE.md [has drifted](#features) from the code.
 
 **Does it slow the agent down?**
-Hooks append one JSON line and exit in about 50 ms. Heavier work (the SQLite projection, the index) happens lazily when you run a command.
+Hooks append a JSON line and exit in roughly 50–75 ms, even with tens of thousands of recorded events. Heavier work (the SQLite projection, the index) happens lazily when you run a command.
 
 **What if the saved state is wrong?**
 The repository wins. Recovery re-verifies files, branch, HEAD and dependencies and prints conflicts at the top. Nothing is restored silently, and no project file is ever modified during recovery.

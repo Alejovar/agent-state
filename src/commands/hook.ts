@@ -55,7 +55,7 @@ Hooks never fail the agent: errors are logged to .agent-state/reports/hook-error
       return 0;
     }
     if (project.configProblem) {
-      logHookError(project, new Error(`paused: config.yaml error: ${project.configProblem}`));
+      logHookNote(project, `paused: config.yaml error: ${project.configProblem}`);
       const note = `agent-state is paused: .agent-state/config.yaml has an error (${project.configProblem}). Fix it to resume recording.`;
       const event = String(input.hook_event_name ?? "");
       if (agent === "claude-code" || agent === "claude") {
@@ -87,11 +87,37 @@ Hooks never fail the agent: errors are logged to .agent-state/reports/hook-error
   },
 };
 
+const LOG_MAX_BYTES = 512 * 1024;
+
+function hookLog(project: Project): string {
+  fs.mkdirSync(project.paths.reports, { recursive: true });
+  const log = `${project.paths.reports}/hook-errors.log`;
+  try {
+    // Keep the log bounded: rotate to .1 when it grows too large.
+    if (fs.statSync(log).size > LOG_MAX_BYTES) fs.renameSync(log, `${log}.1`);
+  } catch {
+    // no log yet
+  }
+  return log;
+}
+
 function logHookError(project: Project, err: unknown): void {
   try {
-    const { appendFileSync, mkdirSync } = fs;
-    mkdirSync(project.paths.reports, { recursive: true });
-    appendFileSync(`${project.paths.reports}/hook-errors.log`, `${new Date().toISOString()} ${(err as Error)?.stack ?? String(err)}\n`);
+    fs.appendFileSync(hookLog(project), `${new Date().toISOString()} ${(err as Error)?.stack ?? String(err)}\n`);
+  } catch {
+    // never break the agent
+  }
+}
+
+/** A known, repeating condition: one line, at most once an hour. */
+function logHookNote(project: Project, message: string): void {
+  try {
+    const marker = `${project.paths.reports}/.last-note`;
+    const last = fs.existsSync(marker) ? fs.readFileSync(marker, "utf8") : "";
+    const [when = "0", what = ""] = last.split("\t");
+    if (what === message && Date.now() - Number(when) < 3_600_000) return;
+    fs.appendFileSync(hookLog(project), `${new Date().toISOString()} ${message}\n`);
+    fs.writeFileSync(marker, `${Date.now()}\t${message}`);
   } catch {
     // never break the agent
   }

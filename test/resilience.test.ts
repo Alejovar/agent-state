@@ -170,3 +170,27 @@ test("a long-running session keeps its task fresh: activity, not just lifecycle,
     repo.cleanup();
   }
 });
+
+test("instructions to the agent use the command that works on this machine", async () => {
+  const { withCli, cliCommand } = await import("../src/core/invocation.js");
+  const cmd = cliCommand();
+  const text = withCli('run `agent-state decide "x"` and `agent-state note tried "y"`; the agent-state project');
+  if (cmd === "agent-state") assert.match(text, /`agent-state decide/);
+  else {
+    assert.ok(text.includes("`" + cmd + " decide"), text);
+    assert.ok(text.includes("`" + cmd + " note tried"), text);
+    assert.match(text, /the agent-state project/, "prose mentions are left alone");
+  }
+  // End to end: a hook run through the CLI tells the agent a runnable command.
+  const repo = makeRepo(AUTH_APP);
+  try {
+    initProject(repo).close();
+    const out = cli(repo.root, ["hook", "claude-code"], JSON.stringify({ hook_event_name: "SessionStart", session_id: "s", cwd: repo.root, source: "startup" })).stdout;
+    const m = /run `(.+?) decide "/.exec(out);
+    assert.ok(m, out);
+    const runnable = m![1]!;
+    assert.ok(runnable === "agent-state" || /^node ".+cli\.js"$/.test(runnable), runnable);
+  } finally {
+    repo.cleanup();
+  }
+});

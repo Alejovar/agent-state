@@ -31,6 +31,8 @@ export interface EventQuery {
   task_id?: string;
   session_id?: string;
   types?: EventType[];
+  /** Restrict to these sessions. */
+  session_ids?: string[];
   /** payload.kind values (e.g. note kinds), filtered in SQL. */
   kinds?: string[];
   path?: string;
@@ -89,6 +91,10 @@ export class Db {
     if (q.task_id) (where.push("task_id = ?"), args.push(q.task_id));
     if (q.session_id) (where.push("session_id = ?"), args.push(q.session_id));
     if (q.types?.length) (where.push(`type IN (${q.types.map(() => "?").join(",")})`), args.push(...q.types));
+    if (q.session_ids) {
+      if (!q.session_ids.length) where.push("0");
+      else (where.push(`session_id IN (${q.session_ids.map(() => "?").join(",")})`), args.push(...q.session_ids));
+    }
     if (q.kinds?.length) (where.push(`json_extract(payload, '$.kind') IN (${q.kinds.map(() => "?").join(",")})`), args.push(...q.kinds));
     if (q.path) (where.push("(path = ? OR text LIKE ?)"), args.push(q.path, `%${q.path.toLowerCase()}%`));
     if (q.text) {
@@ -105,6 +111,22 @@ export class Db {
       (q.limit ? ` LIMIT ${Math.max(1, Math.floor(q.limit))}` : "");
     const rows = this.raw.prepare(sql).all(...args) as unknown as EventRow[];
     return rows.map(rowToEvent);
+  }
+
+  /**
+   * The task each session belongs to: the first task it reported (its earliest
+   * event carrying a task_id). With `taskId`, only sessions that belong to it.
+   */
+  sessionTasks(taskId?: string): Map<string, string> {
+    // Per session, walk its own index range to the first event that names a task.
+    const first = "(SELECT e.task_id FROM events e WHERE e.session_id = s.session_id AND e.task_id IS NOT NULL ORDER BY e.ts, e.id LIMIT 1)";
+    const sql = taskId
+      ? `SELECT s.session_id, ${first} AS task_id FROM (SELECT DISTINCT session_id FROM events WHERE task_id = ? AND session_id IS NOT NULL) s`
+      : `SELECT s.session_id, ${first} AS task_id FROM (SELECT DISTINCT session_id FROM events WHERE session_id IS NOT NULL) s`;
+    const rows = (taskId ? this.raw.prepare(sql).all(taskId) : this.raw.prepare(sql).all()) as { session_id: string; task_id: string | null }[];
+    const out = new Map<string, string>();
+    for (const r of rows) if (r.task_id && (!taskId || r.task_id === taskId)) out.set(r.session_id, r.task_id);
+    return out;
   }
 
   /** Timestamp of the latest event per task (indexed on task_id, ts). */

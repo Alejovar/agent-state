@@ -12,6 +12,7 @@ import type { ScopePolicy } from "../core/config.js";
 import type { DecisionPayload, NotePayload, TodoItem } from "../core/events.js";
 import { reduceState } from "../core/state.js";
 import { genericFraming } from "./adapter.js";
+import { withCli } from "../core/invocation.js";
 
 /**
  * Agent-neutral session logic shared by every hook-based adapter (Claude Code,
@@ -103,8 +104,17 @@ export class AgentSession {
     });
   }
 
+  // One hook = one AgentSession: the current task is looked up once per hook,
+  // and re-read only after something this session did may have changed it.
+  private cachedTask: Task | null | undefined;
+
   task(): Task | null {
-    return this.tasks.currentTask();
+    if (this.cachedTask === undefined) this.cachedTask = this.tasks.currentTask();
+    return this.cachedTask;
+  }
+
+  private taskChanged(): void {
+    this.cachedTask = undefined;
   }
 
   private base(task: Task | null) {
@@ -138,15 +148,16 @@ export class AgentSession {
       payload: { ...meta, source, head: isRepo ? git.head() : null, branch: isRepo ? git.branch() : null },
     });
     this.project.setCurrent({ session_id: this.session_id, agent_id: this.agent, task_id: task?.id ?? null });
+    this.taskChanged();
     // A new or cleared context has seen none of the earlier reminders.
     this.withSession((s) => {
       s.reminded = {};
     });
     const guidance = this.project.config.recovery.agent_guidance ? GUIDANCE : null;
     const body = stale
-      ? `[agent-state] The last unfinished task, #${stale.number} "${clip(stale.goal, 120)}", was last active ${Math.round((Date.now() - Date.parse(stale.updated_at)) / 86_400_000)} day(s) ago, so this session starts fresh. If you are continuing it, run \`agent-state task switch ${stale.number}\` and then \`agent-state recover\`.`
+      ? `[agent-state] The last unfinished task, #${stale.number} "${clip(stale.goal, 120)}", was last active ${sinceText(stale.updated_at)} ago, so this session starts fresh. If you are continuing it, run \`agent-state task switch ${stale.number}\` and then \`agent-state recover\`.`
       : this.startContext(task, source);
-    return [body, guidance].filter(Boolean).join("\n\n") || null;
+    return withCli([body, guidance].filter(Boolean).join("\n\n")) || null;
   }
 
   /** Registers the session without building any context (agents that cannot receive it, e.g. Codex notify). */
@@ -154,6 +165,7 @@ export class AgentSession {
     const task = this.task() ?? this.tasks.latestUnfinished();
     this.project.emit({ type: "SESSION_STARTED", ...this.base(task), payload: { ...meta, source } });
     this.project.setCurrent({ session_id: this.session_id, agent_id: this.agent, task_id: task?.id ?? null });
+    this.taskChanged();
   }
 
   private startContext(task: Task | null, source: StartSource): string | null {
@@ -161,6 +173,7 @@ export class AgentSession {
 
     if (task.status === "COMPACTED" || task.status === "PAUSED") {
       this.tasks.setStatus(task.id, "RECOVERED", { agent_id: this.actor, session_id: this.session_id });
+      this.taskChanged();
       task = this.tasks.get(task.id) ?? task;
     }
     const cfg = this.project.config.recovery;
@@ -177,7 +190,7 @@ export class AgentSession {
       );
     }
     this.project.emit({ type: "RECOVERY_GENERATED", ...this.base(task), payload: { injected: true, source, bytes: r.state.stats.markdown_bytes } });
-    return genericFraming(r.markdown, r.state);
+    return withCli(genericFraming(r.markdown, r.state));
   }
 
   prompt(text: string, meta: Record<string, unknown> = {}): Task | null {
@@ -185,10 +198,12 @@ export class AgentSession {
     let task = this.task();
     if (!task && describesWork(prompt)) {
       task = this.tasks.create(firstLine(prompt), { agent_id: this.actor, session_id: this.session_id });
+      this.taskChanged();
       // Attribute the already-running session to the new task.
       this.project.emit({ type: "SESSION_STARTED", ...this.base(task), payload: { ...meta, source: "attach" } });
     } else if (task && task.status === "RECOVERED") {
       this.tasks.setStatus(task.id, "ACTIVE", { agent_id: this.actor, session_id: this.session_id });
+      this.taskChanged();
     }
     if (prompt && this.project.config.privacy.record_prompts) {
       this.project.emit({ type: "USER_REQUEST", ...this.base(task), payload: { text: clip(prompt, 4000) } });
@@ -204,6 +219,7 @@ export class AgentSession {
       // Leave a fresh recovery state behind so the next session can pick up instantly.
       compactTask(this.project, task, { agent_id: this.actor, session_id: this.session_id, status: false });
       this.tasks.setStatus(task.id, "PAUSED", { agent_id: this.actor, session_id: this.session_id, reason: "session ended" });
+      this.taskChanged();
     }
   }
 
@@ -216,6 +232,7 @@ export class AgentSession {
     this.project.emit({ type: "CONTEXT_COMPACTED", ...this.base(task), payload: { trigger } });
     if (!task) return null;
     const r = compactTask(this.project, task, { agent_id: this.actor, session_id: this.session_id });
+    this.taskChanged();
     this.withSession((s) => {
       s.pressure_level = 0;
       s.reminded = {};
@@ -237,7 +254,7 @@ export class AgentSession {
     if (!task) return null;
     const r = recoverTask(this.project, task);
     this.project.emit({ type: "RECOVERY_GENERATED", ...this.base(task), payload: { injected: true, source: "compact", bytes: r.state.stats.markdown_bytes } });
-    return genericFraming(r.markdown, r.state);
+    return withCli(genericFraming(r.markdown, r.state));
   }
 
   /**
@@ -536,7 +553,15 @@ const SMALL_TALK = new Set([
 export function describesWork(prompt: string): boolean {
   const p = prompt.trim();
   if (!p || p.startsWith("/")) return false;
+  // Scripts written without spaces (Chinese, Japanese, Korean…) carry a whole request in one "word".
+  const cjk = (p.match(/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Thai}]/gu) ?? []).length;
+  if (cjk >= 4) return true;
   const words = p.toLowerCase().split(/\s+/).map((w) => w.replace(/[^\p{L}\p{N}]/gu, "")).filter(Boolean);
   if (words.length < 2) return p.length >= 20;
   return !words.every((w) => SMALL_TALK.has(w));
+}
+
+function sinceText(ts: string): string {
+  const hours = Math.max(1, Math.round((Date.now() - Date.parse(ts)) / 3_600_000));
+  return hours < 48 ? `${hours} hour(s)` : `${Math.round(hours / 24)} day(s)`;
 }

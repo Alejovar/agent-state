@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.6.1
+
+Fixes from a full code review and a live end-to-end test with Claude Code.
+
+- **Agents were told a command that might not exist.** Instructions handed to the agent (record decisions, recover, switch task) always said `agent-state …`; without a global install that command doesn't exist, so recording decisions failed and the agent burned turns retrying. They now use the command that works on this machine. Verified live: Claude recorded a decision with only the permission agent-state installs.
+- Sessions that started before their task existed are attributed to it consistently in every view (`task show`, `task list`, recovery), and their end is seen even when the end event carried no task.
+- `agent-state rebuild` repairs a corrupted `state.db` too; parallel hooks can no longer repair it twice at once.
+- Unsupported Node.js: hooks still answer with the JSON Cursor and Gemini expect; Node 23.0–23.3 (no `node:sqlite`) is detected correctly.
+- Prompts in languages written without spaces (Chinese, Japanese, Korean, Thai) create tasks again.
+- `task switch` counts as activity, so the task isn't treated as stale; short gaps are reported in hours.
+- A broken `config.yaml` is logged once an hour instead of on every hook; the hook error log is capped and rotated.
+- The current task is resolved once per hook; Codex uses an indexed lookup. Hooks stay flat as history grows (~71 ms empty vs ~74 ms with 50,000 events on the same machine).
+
 ## 0.6.0
 
 Fixes and hardening; no new commands.

@@ -2,16 +2,11 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Project } from "../core/project.js";
+import { cliCommand } from "../core/invocation.js";
 
 /** How hooks and slash commands invoke agent-state. Prefers the binary on PATH. */
 export function invocation(): string {
-  try {
-    execFileSync(process.platform === "win32" ? "where" : "which", ["agent-state"], { stdio: "ignore" });
-    return "agent-state";
-  } catch {
-    const script = process.argv[1] ?? "agent-state";
-    return `node ${JSON.stringify(script)}`;
-  }
+  return cliCommand();
 }
 
 /** True for hook commands written by agent-state (binary on PATH or `node …/agent-state/dist/cli.js`). */

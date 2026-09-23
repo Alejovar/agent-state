@@ -51,7 +51,12 @@ export function parseTaskRef(ref: string): string | null {
 }
 
 /** Folds task/session lifecycle events into the current task list. Pure. */
-export function reduceTasks(events: AgentEvent[]): { tasks: Map<string, Task>; sessions: Map<string, Session> } {
+/**
+ * @param sessionTasks optional authoritative session→task mapping (first task each
+ *   session reported, from any event). Without it, sessions are attributed from
+ *   the given events alone.
+ */
+export function reduceTasks(events: AgentEvent[], sessionTasks?: Map<string, string>): { tasks: Map<string, Task>; sessions: Map<string, Session> } {
   const tasks = new Map<string, Task>();
   const sessions = new Map<string, Session>();
   for (const e of events) {
@@ -126,6 +131,7 @@ export function reduceTasks(events: AgentEvent[]): { tasks: Map<string, Task>; s
       }
     }
   }
+  if (sessionTasks) for (const s of sessions.values()) s.task_id = sessionTasks.get(s.id) ?? s.task_id;
   for (const s of sessions.values()) {
     const t = s.task_id ? tasks.get(s.task_id) : undefined;
     if (t) t.sessions.push(s);
@@ -145,7 +151,7 @@ export class TaskService {
 
   load(): { tasks: Map<string, Task>; sessions: Map<string, Session> } {
     const db = this.project.db();
-    const result = reduceTasks(db.query({ types: [...LIFECYCLE_TYPES] }));
+    const result = reduceTasks(db.query({ types: [...LIFECYCLE_TYPES] }), db.sessionTasks());
     withActivity(result.tasks, db.lastActivity());
     return result;
   }
@@ -157,7 +163,14 @@ export class TaskService {
   /** One task, reduced from its own events only (indexed query; cheap on large histories). */
   get(taskId: string): Task | null {
     const db = this.project.db();
-    const { tasks } = reduceTasks(db.query({ task_id: taskId, types: [...LIFECYCLE_TYPES] }));
+    // Same attribution as load(): the task's own events plus the full lifecycle
+    // of every session that belongs to it, whatever task those events carry.
+    const owned = db.sessionTasks(taskId);
+    const events = [
+      ...db.query({ task_id: taskId, types: ["TASK_CREATED", "TASK_UPDATED"] }),
+      ...db.query({ session_ids: [...owned.keys()], types: ["SESSION_STARTED", "SESSION_ENDED"] }),
+    ].sort((a, b) => a.ts.localeCompare(b.ts) || a.id.localeCompare(b.id));
+    const { tasks } = reduceTasks(events, owned);
     withActivity(tasks, db.lastActivity(taskId));
     return tasks.get(taskId) ?? null;
   }
@@ -233,7 +246,9 @@ export class TaskService {
     if (!t) throw new Error(`Unknown task ${taskId}`);
     const cur = this.currentTask();
     if (cur && cur.id !== taskId && cur.status === "ACTIVE") this.setStatus(cur.id, "PAUSED", { reason: `switched to #${t.number}` });
-    if (t.status !== "ACTIVE") this.setStatus(taskId, "ACTIVE");
+    // Always recorded (even if already ACTIVE): an explicit switch is activity,
+    // so the next fresh session doesn't treat the task as stale.
+    this.setStatus(taskId, "ACTIVE", { reason: "switched" });
     this.project.setCurrent({ task_id: taskId });
   }
 }

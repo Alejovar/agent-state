@@ -1,6 +1,7 @@
 import type { Project } from "../core/project.js";
 import { AgentSession, type ScopeGate, type StartSource } from "./session-core.js";
 import { claudeCode } from "./claude-code.js";
+import { cliCommand } from "../core/invocation.js";
 
 /** Input shape of Claude Code command hooks (documented fields only). */
 export interface ClaudeHookInput {
@@ -152,7 +153,7 @@ export class ClaudeHookHandler {
         const { task } = s.limitReached(input.error_type, input.error_message ?? "");
         if (!task) return { exitCode: 0 };
         // StopFailure output can't reach the chat; a desktop notification + window title can.
-        const text = `Claude hit its usage limit. Task #${task.number} saved - run: agent-state continue`;
+        const text = `Claude hit its usage limit. Task #${task.number} saved - run: ${cliCommand()} continue`;
         return json({ terminalSequence: notifySequence("agent-state", text) });
       }
       case "SessionEnd":

@@ -16,6 +16,7 @@ import { newId, nowIso } from "./ids.js";
 import type { AgentEvent, EventType } from "./events.js";
 import { Redactor } from "./redact.js";
 import { openDb, type Db } from "./db.js";
+import { withLock } from "./lock.js";
 import type { ProjectPaths } from "./paths.js";
 
 export interface EmitInput {
@@ -92,32 +93,46 @@ export class EventStore {
    * set aside and rebuilt from the log instead of failing.
    */
   private openOrRepair(): Db {
-    let db: Db | null = null;
-    try {
-      db = openDb(this.paths.db);
-      db.count();
-      return db;
-    } catch (err) {
+    const attempt = (): Db => {
+      const db = openDb(this.paths.db);
       try {
-        db?.close();
-      } catch {
-        // already unusable
+        db.count();
+        return db;
+      } catch (err) {
+        db.close();
+        throw err;
       }
+    };
+    try {
+      return attempt();
+    } catch (err) {
       // Only genuine corruption is repaired; "busy" or permission errors are real failures.
-      if (!/not a database|malformed|corrupt|file is encrypted/i.test((err as Error).message)) throw err;
-      const aside = `${this.paths.db}.corrupt-${Date.now()}`;
-      for (const suffix of ["", "-wal", "-shm"]) {
-        if (existsSync(this.paths.db + suffix)) renameSync(this.paths.db + suffix, aside + suffix);
-      }
-      process.stderr.write(`agent-state: state.db was unreadable (${(err as Error).message}); rebuilt it from the event log. Old file kept as ${aside}\n`);
-      return openDb(this.paths.db);
+      if (!isCorruption(err)) throw err;
     }
+    // Parallel hooks may all hit the corrupt file: one repairs, the others re-check.
+    return withLock(join(this.paths.state, ".repair.lock"), () => {
+      try {
+        return attempt();
+      } catch (err) {
+        if (!isCorruption(err)) throw err;
+        const aside = `${this.paths.db}.corrupt-${Date.now()}`;
+        for (const suffix of ["", "-wal", "-shm"]) {
+          try {
+            renameSync(this.paths.db + suffix, aside + suffix);
+          } catch (e) {
+            if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
+          }
+        }
+        process.stderr.write(`agent-state: state.db was unreadable (${(err as Error).message}); rebuilt it from the event log. Old file kept as ${aside}\n`);
+        return openDb(this.paths.db);
+      }
+    });
   }
 
   /** Drops the projection and rebuilds it from the event log. */
   rebuild(): number {
     this.close();
-    this.db = openDb(this.paths.db);
+    this.db = this.openOrRepair();
     this.db.reset();
     this.sync();
     return this.db.count();
@@ -176,4 +191,8 @@ export function writeText(path: string, text: string): void {
   const tmp = `${path}.${process.pid}.tmp`;
   writeFileSync(tmp, text);
   renameSync(tmp, path);
+}
+
+function isCorruption(err: unknown): boolean {
+  return /not a database|malformed|corrupt|file is encrypted/i.test((err as Error)?.message ?? "");
 }

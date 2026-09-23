@@ -1,7 +1,6 @@
 import type { AgentAdapter } from "./adapter.js";
 import { genericFraming } from "./adapter.js";
 import type { Project } from "../core/project.js";
-import { TaskService } from "../core/tasks.js";
 import { AgentSession } from "./session-core.js";
 
 /**
@@ -37,7 +36,7 @@ export function handleCodexNotification(project: Project, n: CodexNotification):
   if (!n || n.type !== "agent-turn-complete") return;
   const native = n["thread-id"] ?? "session";
   const s = new AgentSession(project, "codex", "cx", native);
-  const known = new TaskService(project).load().sessions.has(s.session_id);
+  const known = project.db().query({ session_id: s.session_id, types: ["SESSION_STARTED"], limit: 1 }).length > 0;
   if (!known) s.attach("notify", { native_session_id: native, ...(n.cwd ? { cwd: n.cwd } : {}) });
   for (const text of (n["input-messages"] ?? []).filter((m) => typeof m === "string" && m.trim())) {
     s.prompt(text, { native_session_id: native });
