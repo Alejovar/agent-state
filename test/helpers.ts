@@ -1,4 +1,5 @@
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, realpathSync } from "node:fs";
+import { randomBytes } from "node:crypto";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
@@ -32,6 +33,8 @@ export function makeRepo(files: Record<string, string> = {}, opts: { git?: boole
     git("config", "user.email", "test@example.com");
     git("config", "user.name", "Test");
     git("config", "commit.gpgsign", "false");
+    // Byte-exact fixtures on every platform (Windows defaults may rewrite line endings).
+    git("config", "core.autocrlf", "false");
     if (Object.keys(files).length) {
       git("add", "-A");
       git("commit", "-qm", "initial");
@@ -78,4 +81,15 @@ export function hook(project: Project, input: Partial<ClaudeHookInput> & { hook_
 export function cli(cwd: string, args: string[], input?: string, env: Record<string, string> = {}) {
   const r = spawnSync(process.execPath, [CLI, ...args], { cwd, encoding: "utf8", input, env: { ...process.env, NO_COLOR: "1", ...env } });
   return { code: r.status ?? -1, stdout: r.stdout, stderr: r.stderr };
+}
+
+/**
+ * A shell command that runs the given JavaScript with node: portable across
+ * sh and cmd.exe (no quoting of the script body on the command line).
+ */
+export function nodeCommand(js: string): string {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "agent-state-cmd-")));
+  const file = join(dir, `cmd-${randomBytes(4).toString("hex")}.mjs`);
+  writeFileSync(file, js);
+  return `"${process.execPath}" "${file}"`;
 }

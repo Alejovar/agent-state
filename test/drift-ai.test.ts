@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { makeRepo, initProject, AUTH_APP } from "./helpers.js";
+import { makeRepo, initProject, AUTH_APP, nodeCommand } from "./helpers.js";
 import { ProjectIndex } from "../src/index/indexer.js";
 import { overview } from "../src/index/analysis.js";
 import { detectDrift } from "../src/core/drift.js";
@@ -44,10 +44,10 @@ test("AI provider abstraction: none, command success, command failure, timeouts"
   assert.equal(providerFromConfig(DEFAULT_CONFIG.ai), null);
   assert.throws(() => providerFromConfig({ ...DEFAULT_CONFIG.ai, provider: "command" }), AIError);
   assert.throws(() => providerFromConfig({ ...DEFAULT_CONFIG.ai, provider: "openai-compatible" }), AIError);
-  const echo = new CommandProvider("cat", 5000);
+  const echo = new CommandProvider(nodeCommand("process.stdin.pipe(process.stdout);"), 5000);
   assert.match(await echo.complete("SYS", "hello"), /SYS\s+hello/);
-  await assert.rejects(new CommandProvider("exit 3", 5000).complete("s", "p"), /exited with 3/);
-  await assert.rejects(new CommandProvider("sleep 5", 200).complete("s", "p"), /timed out/);
+  await assert.rejects(new CommandProvider(nodeCommand("process.exit(3);"), 5000).complete("s", "p"), /exited with 3/);
+  await assert.rejects(new CommandProvider(nodeCommand("setTimeout(() => {}, 5000);"), 300).complete("s", "p"), /timed out/);
 });
 
 test("extractJson tolerates prose and code fences; rejects garbage", () => {
@@ -71,10 +71,10 @@ test("AI features degrade gracefully: malformed output, failing provider, no pro
       assert.deepEqual(await aiDrift(p, ["docs/architecture.md"], ov, []), []);
       // Malformed provider output.
       p.config.ai.provider = "command";
-      p.config.ai.command = "echo 'I think it is fine'";
+      p.config.ai.command = nodeCommand("console.log('I think it is fine');");
       assert.deepEqual(await aiDrift(p, ["docs/architecture.md"], ov, []), []);
       // Valid output is parsed, clamped and labelled as AI.
-      p.config.ai.command = `echo '{"findings":[{"claim":"uses JWT","observed":"ioredis sessions","confidence":7,"files":["docs/architecture.md"]}]}'`;
+      p.config.ai.command = nodeCommand(`console.log(${JSON.stringify(JSON.stringify({ findings: [{ claim: "uses JWT", observed: "ioredis sessions", confidence: 7, files: ["docs/architecture.md"] }] }))});`);
       const found = await aiDrift(p, ["docs/architecture.md"], ov, []);
       assert.equal(found.length, 1);
       assert.equal(found[0]!.evidence, "ai");
@@ -82,9 +82,9 @@ test("AI features degrade gracefully: malformed output, failing provider, no pro
       // Failing provider never breaks recovery.
       const t = new TaskService(p).create("Task");
       const state = recoverTask(p, t).state;
-      p.config.ai.command = "exit 1";
+      p.config.ai.command = nodeCommand("process.exit(1);");
       assert.equal(await aiSummary(p, state, "recovery"), null);
-      p.config.ai.command = "echo 'Summary: continue with state expiry'";
+      p.config.ai.command = nodeCommand("console.log('Summary: continue with state expiry');");
       const ok = await aiSummary(p, state, "recovery");
       assert.equal(ok!.text, "Summary: continue with state expiry");
       assert.equal(ok!.provider, "command");

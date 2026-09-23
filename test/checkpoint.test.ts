@@ -147,7 +147,7 @@ test("checkpoints require git and say so", () => {
   }
 });
 
-test("restore treats file names literally (no pathspec globbing)", () => {
+test("restore treats file names literally (no pathspec globbing)", { skip: process.platform === "win32" && "Windows does not allow * in file names" }, () => {
   const repo = makeRepo({ "a.ts": "a\n", "b.ts": "b\n" });
   try {
     const p = initProject(repo);
