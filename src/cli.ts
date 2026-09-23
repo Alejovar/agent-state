@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import { COMMANDS, findCommand } from "./commands/registry.js";
 import { UsageError } from "./commands/types.js";
-import { NotInitializedError } from "./core/project.js";
+import { NotInitializedError, Project } from "./core/project.js";
 import { CheckpointError } from "./core/checkpoint.js";
 import { GitError } from "./core/git.js";
 import { c } from "./ui/term.js";
@@ -45,7 +45,13 @@ process.stdout.on("error", (err: NodeJS.ErrnoException) => {
 
 async function main(argv: string[]): Promise<number> {
   const [name, ...rest] = argv;
-  if (!name || name === "help" || name === "--help" || name === "-h") {
+  // Bare `agent-state` inside a project answers the most common question: where do things stand?
+  if (!name && Project.tryOpen()) return await findCommand("status")!.run([]);
+  if (!name) {
+    process.stdout.write(help() + "\n\n" + c.bold("Get started: ") + c.cyan("agent-state init") + c.dim("  (in your project folder)") + "\n");
+    return 0;
+  }
+  if (name === "help" || name === "--help" || name === "-h") {
     if (name === "help" && rest[0]) {
       const cmd = findCommand(rest[0]);
       if (cmd) return process.stdout.write(`${cmd.summary}\n\n${cmd.usage}\n`), 0;

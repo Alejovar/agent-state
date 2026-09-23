@@ -19,63 +19,29 @@ Works with **Claude Code**, **Cursor**, **Gemini CLI** and **Codex**, and agent-
 
 </div>
 
-<details>
-<summary>Recovery output as text</summary>
+## What it does
 
-```text
-$ agent-state recover
-# RECOVERY CONTEXT — Task #1
-**Objective:** Implement Google OAuth authentication with Redis sessions
+agent-state runs next to your coding agent and keeps the task's working memory, so you never have to re-explain your work.
 
-## Next recommended action
-? Continue: OAuth state expiration handling
+- 🔁 **Never lose a task.** When the context fills up or you open a new session, the agent gets back the objective, progress, decisions, failures and next step, verified against git.
+- 🧷 **Long sessions stay sharp.** Right before the agent edits a file, it is reminded of the decisions and failed approaches tied to it. Before quality drops, you're offered a clean restart that keeps the task.
+- 🔀 **Out of quota? Keep going.** When Claude hits its usage limit, the task continues in Codex or Gemini CLI with the full context.
+- 🔍 **Review the agent's work in 30 seconds.** What was asked, what changed, why, and how it was verified, with flags for skipped tests, silenced errors, new dependencies and more.
+- 💾 **Undo safely.** Checkpoints of uncommitted work, restored with a preview and an automatic backup.
 
-## In progress
-- [~] OAuth state expiration handling
-## Pending
-- [ ] Integration tests
-## Known issues / current errors
-• OAuth callback fails when OAuth state expires
-• Tests failing: `npm test` (1 failed, 22 passed)
-## Important decisions
-• #1 Use Redis-backed sessions instead of JWT — Existing infra already provides Redis. Rejected: JWT, Database sessions.
-## Changed files (2)
-✓ A src/auth/callback.ts
-✓ M src/auth/session.ts
-## Tests
-• `npm test` FAILED (22 passed, 1 failed), 7m ago — ⚠ 1 changed file(s) modified since
-```
-
-</details>
-
-<sub>Real output. 1.4 KB, generated deterministically from the session's events plus `git`, with no LLM call. With the Claude Code hooks installed, it is **injected automatically** after Claude compacts or resumes.</sub>
-
----
-
-## The problem
-
-Long AI coding sessions end in one of two ways. The context fills up and the agent's own compaction quietly drops details, or the session ends and you open a new one. Either way you end up explaining everything again:
-
-- what you were building, and what's already done
-- why you chose Redis over JWT (so the agent doesn't "fix" it back)
-- which approach already failed
-- which test is broken right now, and what the next step was
-
-**agent-state keeps the *minimum sufficient state* to continue a task correctly.** That's the working state, not the transcript: objective, progress, decisions, failures, changed files, tests and the next action. Every fact is checked against the repository, which stays the source of truth.
-
-It is **not** another coding agent. It's the memory and control layer *around* the agent you already use.
+Local only, no telemetry, secrets redacted before anything is written. Works with **Claude Code**, **Cursor**, **Gemini CLI** and **Codex**, on Linux, macOS and Windows.
 
 ## Quickstart
 
 ```bash
 npm install -g --allow-git=all github:Alejovar/agent-state   # Node ≥ 22.13, no native deps
 cd your-project
-agent-state init --claude       # or --cursor / --gemini (combine freely): creates .agent-state/ + installs hooks
+agent-state init        # detects Claude Code, Cursor, Gemini CLI and Codex, and hooks into each
 ```
 
 > The npm release (`npm install -g agent-state`) is coming in a few days. Until then, install from GitHub as shown above.
 
-That's it. Work in Claude Code as usual. agent-state records what happens. When Claude compacts, it saves the state first and re-injects it afterwards. When you start a new session, it tells Claude that a task is unfinished.
+That's it: keep working with your agent as usual. Type `agent-state` anytime to see where things stand, `agent-state review` to check the agent's work, and `agent-state uninstall` to remove everything it installed.
 
 <details>
 <summary><b>Prefer a Claude Code plugin?</b></summary>
@@ -85,7 +51,7 @@ That's it. Work in Claude Code as usual. agent-state records what happens. When 
 /plugin install agent-state@agent-state
 ```
 
-The plugin forwards hooks to the `agent-state` CLI (install it with npm) and stays silent in projects without `.agent-state/`. Run `agent-state init` in each project you want tracked. Use **either** the plugin **or** `init --claude` in a project, not both, or events are recorded twice.
+The plugin forwards hooks to the `agent-state` CLI (install it with npm) and stays silent in projects without `.agent-state/`. With the plugin, set up each project with `agent-state init --no-hooks` (plain `init` would also install project hooks and every event would be recorded twice).
 </details>
 
 Lost a session anyway?
@@ -118,6 +84,28 @@ flowchart LR
 - Branch changed since the recovery state was saved. (recorded: main → current: feature/other)
 - 1 commit(s) since the recovery state: 9f2c1e0 rewrite google (recorded: d8164df2a1 → current: 9f2c1e0b77)
 - Referenced file no longer exists: src/auth/callback.ts
+```
+
+This is what a recovered session receives (real output, 1.4 KB, generated without any LLM call):
+
+```text
+# RECOVERY CONTEXT — Task #1
+**Objective:** Implement Google OAuth authentication with Redis sessions
+
+## Next recommended action
+? Continue: OAuth state expiration handling
+## In progress
+- [~] OAuth state expiration handling
+## Pending
+- [ ] Integration tests
+## Known issues / current errors
+• OAuth callback fails when OAuth state expires
+• Tests failing: `npm test` (1 failed, 22 passed)
+## Important decisions
+• #1 Use Redis-backed sessions instead of JWT — Existing infra already provides Redis. Rejected: JWT, Database sessions.
+## Changed files (2)
+✓ A src/auth/callback.ts
+✓ M src/auth/session.ts
 ```
 
 ### Long sessions stay sharp

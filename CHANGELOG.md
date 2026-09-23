@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.0
+
+Polish of everything that exists; no new concepts.
+
+- **Windows support**, now tested in CI next to Linux and macOS. Fixes a bug where edited files were not recorded on Windows: paths are canonicalized (8.3 short names like `RUNNER~1`, symlinks) before being compared.
+- **`agent-state init` detects your agents** (Claude Code, Cursor, Gemini CLI, Codex) and hooks into each one, then explains what happens next. `--no-hooks` only creates `.agent-state/`.
+- **`agent-state uninstall`** removes every hook, slash command and permission agent-state installed and keeps your own; `--purge` also deletes the recorded memory.
+- **Bare `agent-state`** shows the project status (or how to get started outside a project).
+- **`doctor`** detects hooks pointing at a script that no longer exists, a duplicate plugin + project install, and recent hook errors; exits 1 when something needs fixing.
+- README: a clear "What it does" up front and a one-command quickstart.
+
 ## 0.4.0
 
 - **Usage-limit handoff:** when Claude Code stops on its usage limit (`StopFailure` / `rate_limit`), the task is saved immediately and a desktop notification points to `agent-state continue`, which opens Codex or Gemini CLI (whichever is installed) with the full context and a takeover note. `status` shows active limits. A limit counts as over once the agent works again.

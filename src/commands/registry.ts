@@ -1,5 +1,5 @@
 import type { Command } from "./types.js";
-import { init, status, rebuild, doctor } from "./core.js";
+import { init, status, rebuild, doctor, uninstall } from "./core.js";
 import { task, note, decide } from "./task.js";
 import { compact, recover, handoff, cont, adaptersCmd } from "./recovery.js";
 import { checkpoint, checkpoints, restore } from "./checkpoints.js";
@@ -43,6 +43,7 @@ export const COMMANDS: Command[] = [
   adaptersCmd,
   rebuild,
   doctor,
+  uninstall,
 ];
 
 export function findCommand(name: string): Command | undefined {

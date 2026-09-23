@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { Project } from "../core/project.js";
 import { TaskService } from "../core/tasks.js";
@@ -8,39 +8,102 @@ import { Checkpoints } from "../core/checkpoint.js";
 import { loadRecovery } from "../core/recovery.js";
 import { unexpectedFiles } from "../core/scope.js";
 import { activeLimits } from "../core/limits.js";
-import { box, c, ago, kv, formatBytes } from "../ui/term.js";
+import { box, c, ago, kv, formatBytes, confirm } from "../ui/term.js";
 import { gitAvailable } from "../core/git.js";
+import { isOurHook } from "../integrations/claude.js";
+import { homedir } from "node:os";
+import { execFileSync } from "node:child_process";
 import { type Command, parse, out, json } from "./types.js";
 import { resolveTask } from "./context.js";
-import { installClaude } from "../integrations/claude.js";
-import { installCursor, installGemini } from "../integrations/others.js";
+import { installClaude, uninstallClaude } from "../integrations/claude.js";
+import { installCursor, installGemini, uninstallCursor, uninstallGemini } from "../integrations/others.js";
+import { detectAgents, type AgentKind } from "../integrations/detect.js";
 
 export const init: Command = {
   name: "init",
   group: "Core",
-  summary: "Initialize agent-state in this project",
-  usage: `agent-state init [--claude] [--cursor] [--gemini] [--no-gitignore]
+  summary: "Set up agent-state in this project and hook into the agents installed here",
+  usage: `agent-state init [--claude] [--cursor] [--gemini] [--no-hooks] [--no-gitignore]
 
-  Creates .agent-state/ at the repository root (config, event log, state db).
-  --claude         also install Claude Code hooks and slash commands (.claude/)
-  --cursor         also install Cursor hooks (.cursor/hooks.json)
-  --gemini         also install Gemini CLI hooks (.gemini/settings.json)
+  Creates .agent-state/ at the repository root. With no agent flags it detects
+  the agents installed on this machine (Claude Code, Cursor, Gemini CLI, Codex)
+  and hooks into each of them. Pass flags to choose explicitly.
+  --no-hooks       only create .agent-state/, install nothing
   --no-gitignore   do not add .agent-state/ to .gitignore`,
   run(argv) {
-    const { values } = parse(argv, { claude: { type: "boolean" }, cursor: { type: "boolean" }, gemini: { type: "boolean" }, "no-gitignore": { type: "boolean" } }, false);
+    const { values } = parse(
+      argv,
+      { claude: { type: "boolean" }, cursor: { type: "boolean" }, gemini: { type: "boolean" }, "no-hooks": { type: "boolean" }, "no-gitignore": { type: "boolean" } },
+      false,
+    );
     const { project, created } = Project.init(process.cwd(), { gitignore: !values["no-gitignore"] });
-    out(created ? `${c.green("✓")} Project initialized: ${project.root}` : `${c.green("✓")} Already initialized: ${project.root}`);
-    out(c.dim(`  state: ${project.paths.state}`));
-    if (!project.git.isRepo()) out(c.yellow("  ⚠ Not a git repository — change tracking and checkpoints are limited."));
-    const lines = [
-      ...(values.claude ? installClaude(project) : []),
-      ...(values.cursor ? installCursor(project) : []),
-      ...(values.gemini ? installGemini(project) : []),
-    ];
+    out(created ? `${c.green("✓")} agent-state set up in ${project.root}` : `${c.green("✓")} agent-state already set up in ${project.root}`);
+    if (!project.git.isRepo()) out(c.yellow("  ⚠ Not a git repository: change tracking and checkpoints are limited."));
+
+    const explicit = values.claude || values.cursor || values.gemini;
+    let targets: AgentKind[] = [];
+    if (values["no-hooks"]) targets = [];
+    else if (explicit) targets = [...(values.claude ? ["claude-code" as const] : []), ...(values.cursor ? ["cursor" as const] : []), ...(values.gemini ? ["gemini-cli" as const] : [])];
+    else {
+      const found = detectAgents();
+      targets = found.map((a) => a.id);
+      if (found.length) out(c.dim(`  detected: ${found.map((a) => `${a.name} (${a.evidence})`).join(", ")}`));
+    }
+
+    const lines: string[] = [];
+    if (targets.includes("claude-code")) lines.push(...installClaude(project));
+    if (targets.includes("cursor")) lines.push(...installCursor(project));
+    if (targets.includes("gemini-cli")) lines.push(...installGemini(project));
+    // Say "install globally" once, not once per agent.
+    const unstable = lines.filter((l) => l.startsWith("Hooks call "));
+    for (const l of lines.filter((l) => !l.startsWith("Hooks call "))) out(`${c.green("✓")} ${l}`);
+    if (unstable.length) out(c.yellow(`  ⚠ ${unstable[0]!.replace(/ for a stable path\.$/, "")} — install it globally (npm i -g agent-state) so the hooks keep working if this folder moves.`));
+    if (targets.includes("codex")) {
+      out(`${c.yellow("•")} Codex CLI: add ${c.cyan('notify = ["agent-state", "hook", "codex"]')} to ~/.codex/config.toml (global file, so agent-state won't edit it for you)`);
+    }
+
+    out("");
+    if (!targets.length && !values["no-hooks"]) {
+      out(`No agent found on this machine. Hook one in later with ${c.cyan("agent-state init --claude")} (or --cursor / --gemini).`);
+      return 0;
+    }
+    if (targets.length) {
+      out(c.bold("What happens now"));
+      out("  • Work with your agent as usual: agent-state records the task in the background.");
+      out("  • When the context fills up, or you open a new session, the agent gets the task back automatically.");
+      out(`  • Anytime: ${c.cyan("agent-state")} (where things stand) · ${c.cyan("agent-state review")} (check the agent's work) · ${c.cyan("agent-state --help")}`);
+    }
+    return 0;
+  },
+};
+
+export const uninstall: Command = {
+  name: "uninstall",
+  group: "Core",
+  summary: "Remove agent-state's hooks, slash commands and permissions from this project (--purge also deletes its memory)",
+  usage: `agent-state uninstall [--purge] [--yes]
+
+  Removes everything agent-state installed for Claude Code, Cursor and Gemini CLI
+  in this project; your own hooks, commands and settings are kept.
+  --purge   also delete .agent-state/ (all recorded history and recovery states)
+  --yes     don't ask for confirmation`,
+  async run(argv) {
+    const { values } = parse(argv, { purge: { type: "boolean" }, yes: { type: "boolean", short: "y" } }, false);
+    const project = Project.open();
+    const lines = [...uninstallClaude(project), ...uninstallCursor(project), ...uninstallGemini(project)];
     for (const l of lines) out(`${c.green("✓")} ${l}`);
-    if (!lines.length) {
-      out("");
-      out(`Next: ${c.cyan("agent-state init --claude")} (or --cursor / --gemini) to hook into your agent, or ${c.cyan('agent-state task new "<goal>"')}.`);
+    if (!lines.length) out(c.dim("No agent integrations found in this project."));
+    if (values.purge) {
+      const ok = values.yes || (await confirm(`Delete ${project.paths.state} (all recorded history and recovery states)?`));
+      if (!ok) {
+        out("Kept .agent-state/.");
+        return 0;
+      }
+      project.close();
+      rmSync(project.paths.state, { recursive: true, force: true });
+      out(`${c.green("✓")} Deleted .agent-state/`);
+    } else {
+      out(c.dim("Recorded memory kept in .agent-state/ (delete it with --purge)."));
     }
     return 0;
   },
@@ -87,9 +150,10 @@ export const status: Command = {
     const lines: string[] = [];
     lines.push(`Project: ${project.name}${changes.branch ? c.dim(`  (${changes.branch} @ ${changes.head?.slice(0, 7) ?? "—"})`) : ""}`);
     if (!task) {
-      lines.push("Task: " + c.dim("none"));
+      lines.push("Task: " + c.dim("none yet"));
       lines.push("");
-      lines.push(c.dim('Start: agent-state task new "<goal>"'));
+      lines.push(c.dim("It starts by itself with your first request"));
+      lines.push(c.dim('to the agent (or: agent-state task new "<goal>")'));
     } else {
       lines.push(`Session: ${session ? `${session.label}${session.ended_at ? c.dim(" (ended)") : ""}` : c.dim("none")}`);
       lines.push(`Task: #${task.number} ${truncate(task.goal, 52)}`);
@@ -168,22 +232,53 @@ export const doctor: Command = {
     const files = existsSync(evDir) ? readdirSync(evDir).filter((f) => f.endsWith(".jsonl")) : [];
     const bytes = files.reduce((a, f) => a + statSync(join(evDir, f)).size, 0);
     ok(`Event log: ${files.length} file(s), ${formatBytes(bytes)}; db: ${project.db().count()} events`);
-    const settings = join(project.root, ".claude", "settings.json");
-    const local = join(project.root, ".claude", "settings.local.json");
-    const hasHooks = [settings, local].some((p) => existsSync(p) && /agent-state[^"]*hook/.test(readText(p)));
-    const cursorHooks = join(project.root, ".cursor", "hooks.json");
-    const geminiSettings = join(project.root, ".gemini", "settings.json");
-    const hasCursor = existsSync(cursorHooks) && readText(cursorHooks).includes("agent-state hook");
-    const hasGemini = existsSync(geminiSettings) && readText(geminiSettings).includes("agent-state hook");
-    if (hasHooks) ok("Claude Code hooks installed");
-    if (hasCursor) ok("Cursor hooks installed");
-    if (hasGemini) ok("Gemini CLI hooks installed");
-    if (!hasHooks && !hasCursor && !hasGemini) warn("No agent hooks installed (run `agent-state init --claude`, `--cursor` or `--gemini`)");
+    // Integrations: which are installed, and does each hook command still point at something runnable?
+    const integrationFiles: [string, string][] = [
+      ["Claude Code", join(project.root, ".claude", "settings.local.json")],
+      ["Claude Code", join(project.root, ".claude", "settings.json")],
+      ["Cursor", join(project.root, ".cursor", "hooks.json")],
+      ["Gemini CLI", join(project.root, ".gemini", "settings.json")],
+    ];
+    const installed = new Map<string, string[]>();
+    for (const [agent, file] of integrationFiles) {
+      if (!existsSync(file)) continue;
+      for (const m of readText(file).matchAll(/"command":\s*"((?:[^"\\]|\\.)*)"/g)) {
+        const cmd = JSON.parse(`"${m[1]}"`) as string;
+        if (!isOurHook(cmd)) continue;
+        installed.set(agent, [...(installed.get(agent) ?? []), cmd]);
+      }
+    }
+    let problems = 0;
+    for (const [agent, cmds] of installed) {
+      const cmd = cmds[0]!;
+      const script = /^node\s+"([^"]+)"/.exec(cmd)?.[1];
+      const runnable = script ? existsSync(script) : onPath("agent-state");
+      if (runnable) ok(`${agent} hooks installed`);
+      else {
+        problems++;
+        warn(`${agent} hooks call ${script ?? "agent-state"}, which no longer exists. Re-run \`agent-state init\` to repair.`);
+      }
+    }
+    if (!installed.size) warn("No agent hooks installed (run `agent-state init`)");
+    const plugin = join(homedir(), ".claude", "plugins");
+    if (installed.has("Claude Code") && existsSync(plugin) && readdirSync(plugin, { recursive: true }).some((f) => String(f).endsWith(join("agent-state", ".claude-plugin", "plugin.json")))) {
+      warn("The agent-state Claude Code plugin is also installed: events may be recorded twice. Keep one (plugin or project hooks).");
+    }
+    const errLog = join(project.paths.reports, "hook-errors.log");
+    if (existsSync(errLog)) {
+      const lines = readText(errLog).split("\n").filter((l) => /^\d{4}-\d{2}-\d{2}T/.test(l));
+      const recent = lines.filter((l) => Date.now() - Date.parse(l.slice(0, 24)) < 86_400_000);
+      if (recent.length) {
+        problems++;
+        warn(`${recent.length} hook error(s) in the last 24h; latest: ${recent.at(-1)!.slice(25, 160)}`);
+        out(c.dim(`  full log: ${errLog}`));
+      }
+    }
     const ai = project.config.ai;
     out(kv("AI provider", ai.provider === "none" ? c.dim("none (deterministic only, nothing leaves this machine)") : `${ai.provider}${ai.model ? ` · ${ai.model}` : ""}`));
     const tasks = new TaskService(project).list();
     out(kv("Tasks", `${tasks.length} (${tasks.filter((t) => t.status !== "COMPLETED" && t.status !== "ABANDONED").length} unfinished)`));
-    return 0;
+    return problems ? 1 : 0;
   },
 };
 
@@ -192,5 +287,14 @@ function readText(p: string): string {
     return readFileSync(p, "utf8");
   } catch {
     return "";
+  }
+}
+
+function onPath(cmd: string): boolean {
+  try {
+    execFileSync(process.platform === "win32" ? "where" : "which", [cmd], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
   }
 }

@@ -71,7 +71,9 @@ export function uninstallCursor(project: Project): string[] {
   const file = join(project.root, ".cursor", "hooks.json");
   if (!existsSync(file)) return [];
   const doc = readJsonFile(file);
-  writeJsonFile(file, { ...doc, hooks: stripCursor((doc.hooks as Record<string, CursorEntry[]>) ?? {}) });
+  const next = { ...doc, hooks: stripCursor((doc.hooks as Record<string, CursorEntry[]>) ?? {}) };
+  if (JSON.stringify(next) === JSON.stringify(doc)) return [];
+  writeJsonFile(file, next);
   return ["Removed agent-state hooks from .cursor/hooks.json"];
 }
 
@@ -134,6 +136,7 @@ export function uninstallGemini(project: Project): string[] {
   const hooks = stripGemini((s.hooks as Record<string, GeminiGroup[]>) ?? {});
   const next: Record<string, unknown> = { ...s, hooks };
   if (!Object.keys(hooks).length) delete next.hooks;
+  if (JSON.stringify(next) === JSON.stringify(s)) return [];
   writeJsonFile(file, next);
   return ["Removed agent-state hooks from .gemini/settings.json"];
 }

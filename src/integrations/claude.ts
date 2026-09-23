@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Project } from "../core/project.js";
 
@@ -196,14 +196,40 @@ export function installClaude(project: Project, opts: { shared?: boolean } = {})
   return lines;
 }
 
+/** Removes the permission entries added by allowMemoryCommands. */
+export function removeMemoryPermissions(settings: Record<string, unknown>): Record<string, unknown> {
+  const permissions = settings.permissions as Record<string, unknown> | undefined;
+  if (!permissions || !Array.isArray(permissions.allow)) return settings;
+  const allow = (permissions.allow as string[]).filter((a) => !/agent-state[^)]*\s(?:decide|note):\*\)$/.test(String(a)));
+  const next: Record<string, unknown> = { ...permissions, allow };
+  if (!allow.length) delete next.allow;
+  const out: Record<string, unknown> = { ...settings, permissions: next };
+  if (!Object.keys(next).length) delete out.permissions;
+  return out;
+}
+
 export function uninstallClaude(project: Project): string[] {
   const out: string[] = [];
   for (const name of ["settings.json", "settings.local.json"]) {
     const file = join(project.root, ".claude", name);
     if (!existsSync(file)) continue;
-    const s = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
-    writeFileSync(file, JSON.stringify(removeHooks(s), null, 2) + "\n");
-    out.push(`Removed agent-state hooks from .claude/${name}`);
+    const before = readFileSync(file, "utf8");
+    const s = JSON.parse(before) as Record<string, unknown>;
+    const after = JSON.stringify(removeMemoryPermissions(removeHooks(s)), null, 2) + "\n";
+    if (after !== before) {
+      writeFileSync(file, after);
+      out.push(`Removed agent-state hooks and permissions from .claude/${name}`);
+    }
   }
+  const removed: string[] = [];
+  for (const name of Object.keys(SLASH_COMMANDS)) {
+    const p = join(project.root, ".claude", "commands", `${name}.md`);
+    // Only files agent-state wrote (they invoke agent-state); never user commands.
+    if (existsSync(p) && /agent-state|cli\.js/.test(readFileSync(p, "utf8"))) {
+      rmSync(p);
+      removed.push(`/${name}`);
+    }
+  }
+  if (removed.length) out.push(`Removed slash commands: ${removed.join(" ")}`);
   return out;
 }
