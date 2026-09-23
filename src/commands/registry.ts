@@ -8,6 +8,7 @@ import { index, impactCmd } from "./intelligence.js";
 import { hook, event, integrate } from "./hook.js";
 import { history, decisions, why } from "./history.js";
 import { scope } from "./scope.js";
+import { review } from "./review.js";
 import { drift } from "./drift.js";
 import { replay, sessionsCmd, worktrees } from "./replay.js";
 
@@ -16,6 +17,7 @@ export const COMMANDS: Command[] = [
   status,
   task,
   changes,
+  review,
   impactCmd,
   index,
   checkpoint,

@@ -21,6 +21,8 @@ export interface ClaudeHookInput {
   trigger?: string;
   reason?: string;
   last_assistant_message?: string;
+  error_type?: string;
+  error_message?: string;
 }
 
 export interface HookResult {
@@ -145,6 +147,14 @@ export class ClaudeHookHandler {
       case "Stop":
         s.flushStale();
         return this.pressure(s, input);
+      case "StopFailure": {
+        if (input.error_type !== "rate_limit") return { exitCode: 0 };
+        const { task } = s.limitReached(input.error_type, input.error_message ?? "");
+        if (!task) return { exitCode: 0 };
+        // StopFailure output can't reach the chat; a desktop notification + window title can.
+        const text = `Claude hit its usage limit. Task #${task.number} saved - run: agent-state continue`;
+        return json({ terminalSequence: notifySequence("agent-state", text) });
+      }
       case "SessionEnd":
         s.end(input.reason ?? "other");
         return { exitCode: 0 };
@@ -183,4 +193,11 @@ function preToolOutput(gate: ScopeGate | null, reminder: string | null): HookRes
     out.systemMessage = `⚠ agent-state: scope expansion — ${gate.reason}.`;
   }
   return json(out);
+}
+
+/** Desktop notification (OSC 9 / 777) plus window title (OSC 2): the only output StopFailure honors. */
+export function notifySequence(title: string, body: string): string {
+  const clean = (x: string) => x.replace(/[\x00-\x1f\x7f;]/g, " ").slice(0, 200);
+  const b = clean(body);
+  return `\x1b]9;${b}\x07\x1b]777;notify;${clean(title)};${b}\x07\x1b]2;${clean(title)}: ${b}\x07`;
 }

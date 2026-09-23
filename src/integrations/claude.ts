@@ -40,6 +40,7 @@ export function hookConfig(cmd: string): Record<string, HookEntry[]> {
     SubagentStop: h(),
     Stop: h(),
     SessionEnd: h(),
+    StopFailure: h("rate_limit"),
   };
 }
 
@@ -111,6 +112,11 @@ export const SLASH_COMMANDS: Record<string, { description: string; hint?: string
     hint: "<name>",
     run: "restore $ARGUMENTS --dry-run",
     after: "Summarize what restoring would change and the conflicts. Do NOT run the real restore yourself; tell the user to run `agent-state restore <name>` in their terminal.",
+  },
+  brief: {
+    description: "Review brief of this task's changes: what, why, how it was verified, where to look",
+    run: "review $ARGUMENTS",
+    after: "Present the brief to the user. Offer to address any 🔴 item before they review or merge.",
   },
   changes: {
     description: "Show the change map of the current task",

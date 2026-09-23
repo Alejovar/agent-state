@@ -223,6 +223,19 @@ export class AgentSession {
     return genericFraming(r.markdown, r.state);
   }
 
+  /**
+   * The agent stopped because it ran out of usage (rate limit). Saves the task
+   * state right away so another agent can pick it up, and records the event so
+   * `agent-state continue` and `status` can offer the handoff.
+   */
+  limitReached(errorType: string, message: string): { task: Task | null; bytes: number } {
+    const task = this.task();
+    let bytes = 0;
+    if (task) bytes = compactTask(this.project, task, { agent_id: this.actor, session_id: this.session_id, status: false }).state.stats.markdown_bytes;
+    this.project.emit({ type: "AGENT_LIMIT_REACHED", ...this.base(task), payload: { error_type: errorType, message: clip(message, 300), bytes } });
+    return { task, bytes };
+  }
+
   // ---------------------------------------------------------------- reminders
 
   /**

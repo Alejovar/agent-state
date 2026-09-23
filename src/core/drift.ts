@@ -99,15 +99,19 @@ function techEvidence(t: Tech, deps: Set<string>, files: string[]): string[] {
 }
 
 /** Splits markdown into (line, text) pairs, skipping fenced code blocks for prose checks. */
-function lines(md: string): { n: number; text: string; code: boolean }[] {
-  const out: { n: number; text: string; code: boolean }[] = [];
+function lines(md: string): { n: number; text: string; code: boolean; sample: boolean }[] {
+  const out: { n: number; text: string; code: boolean; sample: boolean }[] = [];
   let fence = false;
+  let sample = false;
   md.split("\n").forEach((text, i) => {
-    if (/^\s*(```|~~~)/.test(text)) {
+    const m = /^\s*(?:```|~~~)\s*([\w-]*)/.exec(text);
+    if (m) {
       fence = !fence;
+      // ```text / ```console blocks show example output, not references to this repo.
+      sample = fence && /^(text|console|output|log|shell-session)$/i.test(m[1] ?? "");
       return;
     }
-    out.push({ n: i + 1, text, code: fence });
+    out.push({ n: i + 1, text, code: fence, sample: fence && sample });
   });
   return out;
 }
@@ -157,9 +161,9 @@ export function detectDrift(project: Project, idx: ProjectIndex, only?: string):
     const docDir = posix.dirname(doc);
     const reportedTech = new Set<string>();
     const reportedPaths = new Set<string>();
-    for (const { n, text, code } of lines(md)) {
+    for (const { n, text, code, sample } of lines(md)) {
       // 1. Paths that no longer exist.
-      for (const m of text.matchAll(PATHLIKE)) {
+      for (const m of sample ? [] : text.matchAll(PATHLIKE)) {
         const raw = (m[1] ?? m[2] ?? "").replace(/^\.\//, "").replace(/[),.:;]+$/, "").replace(/:\d+(:\d+)?$/, "");
         if (!raw || !looksLikeRepoPath(raw) || reportedPaths.has(raw)) continue;
         const candidates = [raw, posix.normalize(posix.join(docDir, raw)), raw.replace(/\/$/, "")];

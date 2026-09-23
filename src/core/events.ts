@@ -29,6 +29,7 @@ export const EVENT_TYPES = [
   "SCOPE_VIOLATION",
   "SUBAGENT_STARTED",
   "SUBAGENT_FINISHED",
+  "AGENT_LIMIT_REACHED",
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];

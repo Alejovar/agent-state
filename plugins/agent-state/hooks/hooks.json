@@ -112,6 +112,18 @@
           }
         ]
       }
+    ],
+    "StopFailure": [
+      {
+        "matcher": "rate_limit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/bin/agent-state-hook",
+            "timeout": 30
+          }
+        ]
+      }
     ]
   }
 }

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.0
+
+- **Usage-limit handoff:** when Claude Code stops on its usage limit (`StopFailure` / `rate_limit`), the task is saved immediately and a desktop notification points to `agent-state continue`, which opens Codex or Gemini CLI (whichever is installed) with the full context and a takeover note. `status` shows active limits. A limit counts as over once the agent works again.
+- **Review brief:** `agent-state review` (`/brief`) summarizes what was asked, what changed (+/− lines, dependents, test coverage), why (decisions, dropped approaches), how it was verified (fresh or stale test runs) and what to look at closely: skipped or focused tests, deleted tests, silenced type checkers and linters, swallowed errors, hardcoded credentials, new dependencies, infra/CI/config changes, scope violations, untested or widely used code. Includes a suggested review order; `--out` writes PR-ready Markdown.
+
 ## 0.3.0
 
 - **Just-in-time reminders:** right before the agent edits a file, it receives the decisions, failed approaches and open issues linked to that file (explicit `--file` links or mentions of its name); before rerunning a command that failed, it gets the reason. Delivered once per context, never blocking. Claude Code gets them before the edit (`PreToolUse` additional context); Cursor and Gemini CLI with the tool result.

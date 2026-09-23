@@ -136,6 +136,30 @@ Around the two-hour mark, long sessions degrade: the agent forgets earlier decis
 
 The agent is also told, once per session, to record decisions and failed approaches (`agent-state decide` / `agent-state note tried`). `init --claude` allows exactly those two commands so they run without a permission prompt; they only write to `.agent-state/`.
 
+### Out of Claude quota? Keep going in another agent
+
+When Claude Code stops on its usage limit, agent-state saves the task on the spot and pops a desktop notification. `agent-state continue` then opens **Codex** or **Gemini CLI** (whichever is installed; each has its own quota) with the full task context and a note that it is taking over. When your limit resets, `agent-state continue --agent claude-code` brings everything back, including what the other agent did.
+
+### Review what the agent did in 30 seconds
+
+Reading code you didn't write is now the bottleneck. `agent-state review` (or `/brief` in Claude Code) turns the task into a review brief: what was asked, what changed, why (decisions, dropped approaches), how it was verified, and where to look closely.
+
+```text
+## Look closely at
+- 🔴 `tests/auth/oauth.test.ts` skips a test
+- 🔴 tests fail: `npm test` (1 failed)
+- 🟡 `src/auth/oauth.ts` silences the TypeScript compiler
+- 🟡 `src/auth/oauth.ts` swallows an error silently
+- 🟡 `src/auth/session.ts` 8 files depend on it
+
+## Suggested review order
+1. `tests/auth/oauth.test.ts` — +2 −0, new
+2. `src/auth/oauth.ts` — +5 −0, new, 1 dependent(s)
+3. `src/auth/session.ts` — +1 −0, modified, 8 dependent(s)
+```
+
+It is deterministic (git + recorded activity). The flags are heuristics that point your attention; they are not verdicts. `--out review.md` gives you Markdown to paste into a pull request.
+
 ### Evidence levels: guesses are never presented as facts
 
 | Mark | Meaning |
@@ -151,6 +175,8 @@ The agent is also told, once per session, to record decisions and failed approac
 
 | | Command | What it does |
 |---|---|---|
+| 🔀 | `continue` (auto handoff) | When Claude hits its usage limit, the task continues in Codex or Gemini CLI with full context |
+| 🔍 | `review` · `/brief` | Review brief: asked / changed / why / verified, with risk flags (skipped tests, silenced checks, swallowed errors, credentials, new deps, CI changes) and a review order |
 | 🧷 | reminders · `/fresh` | Related decisions and failed approaches surface right before the agent edits a file; a clean restart is suggested before long contexts degrade |
 | 🧠 | `compact` · `recover` · `continue` · `handoff` | Compact state → verified recovery → resume the agent. Also available as `/recover` and `/handoff` in Claude Code |
 | 💾 | `checkpoint` · `checkpoints` · `restore` | Snapshots of the working tree, staged changes, untracked files and task state, stored as private git objects. Restore shows a dry-run and conflicts, asks first, and **takes an automatic backup** so a restore can be undone. It never moves HEAD |
@@ -232,7 +258,7 @@ Relevant files: docs/architecture.md:3
 
 ## Claude Code integration
 
-`agent-state init --claude` writes hooks to `.claude/settings.local.json` (use `integrate claude-code --shared` for the committed `settings.json`) and adds slash commands: `/fresh` `/recover` `/handoff` `/checkpoint` `/restore` `/changes` `/impact` `/history` `/why` `/drift` `/index`.
+`agent-state init --claude` writes hooks to `.claude/settings.local.json` (use `integrate claude-code --shared` for the committed `settings.json`) and adds slash commands: `/fresh` `/brief` `/recover` `/handoff` `/checkpoint` `/restore` `/changes` `/impact` `/history` `/why` `/drift` `/index`.
 
 | Hook | What agent-state does |
 |---|---|
@@ -245,6 +271,7 @@ Relevant files: docs/architecture.md:3
 | `PreToolUse` (reminders) | adds the decisions / failed approaches linked to the file being edited, or why a command failed last time |
 | `Stop` | estimates context pressure; at 60% saves the state and suggests `/clear`, at 94% generates recovery |
 | `SessionEnd` | leaves a fresh recovery state behind |
+| `StopFailure` (`rate_limit`) | saves the task and sends a desktop notification: continue in another agent with `agent-state continue` |
 
 It uses documented hook events only. Anything uncertain, such as the token estimate read from the transcript, is isolated in the adapter and degrades to "unknown". Hooks take about 50 ms, never block the agent on errors (errors go to `.agent-state/reports/hook-errors.log`) and never interrupt it unless you pick the `block` scope policy.
 

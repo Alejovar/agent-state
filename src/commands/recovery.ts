@@ -8,7 +8,8 @@ import { TaskService } from "../core/tasks.js";
 import { toProjectPath } from "../core/paths.js";
 import { adapterFor, ADAPTERS } from "../adapters/registry.js";
 import { aiSummary } from "../ai/enhance.js";
-import { c, confirm, formatBytes } from "../ui/term.js";
+import { c, confirm, formatBytes, ago } from "../ui/term.js";
+import { activeLimits } from "../core/limits.js";
 import { type Command, parse, out, err, json, UsageError } from "./types.js";
 import { cliAttribution, resolveTask } from "./context.js";
 
@@ -116,7 +117,10 @@ export const cont: Command = {
   name: "continue",
   group: "Recovery",
   summary: "Resume the latest unfinished task: verify, show what will be restored, start the agent",
-  usage: `agent-state continue [task-id] [--agent claude-code|codex|generic] [--print] [--yes]
+  usage: `agent-state continue [task-id] [--agent claude-code|codex|gemini-cli|cursor|generic] [--print] [--yes]
+
+  If Claude Code recently stopped on its usage limit and no --agent is given,
+  the task continues in another installed agent (Codex, then Gemini CLI).
 
   1. finds the latest unfinished task   2. loads its state and recovery state
   3. verifies the repository            4. builds agent-specific continuation context
@@ -132,8 +136,29 @@ export const cont: Command = {
       return 0;
     }
     const r = recoverTask(project, t);
-    const adapter = adapterFor(values.agent ?? "claude-code");
-    const context = adapter.formatContext(r.markdown, r.state);
+    const limits = activeLimits(project);
+    let agentId = values.agent;
+    let handoff: string | null = null;
+    const claudeLimit = limits.find((l) => l.agent_id === "claude-code");
+    if (!agentId && claudeLimit) {
+      const alt = HANDOFF_ORDER.find((id) => hasBinary(adapterFor(id).launchCommand?.("")?.cmd ?? ""));
+      if (alt) {
+        agentId = alt;
+        out(c.yellow(`Claude Code hit its usage limit ${ago(claudeLimit.ts)} → continuing in ${adapterFor(alt).displayName}, which has its own quota.`));
+        out(c.dim("  (Back to Claude after the reset: agent-state continue --agent claude-code)"));
+        out("");
+      } else {
+        out(c.yellow(`Claude Code hit its usage limit ${ago(claudeLimit.ts)}, and no other agent CLI (codex, gemini) is installed.`));
+        out(c.dim("  Install one to keep going now, or print the context for any tool: agent-state continue --print --agent generic"));
+        out("");
+      }
+    }
+    const adapter = adapterFor(agentId ?? "claude-code");
+    const stopped = limits.find((l) => l.agent_id !== adapter.id);
+    if (stopped) {
+      handoff = `Note: the previous agent (${ADAPTERS[stopped.agent_id]?.displayName ?? stopped.agent_id}) stopped because it reached its usage limit. You are taking over the same task; the work so far is in the repository.`;
+    }
+    const context = [handoff, adapter.formatContext(r.markdown, r.state)].filter(Boolean).join("\n\n");
     if (values.print) return process.stdout.write(context + "\n"), 0;
 
     out(c.bold(`Continue task #${t.number}: ${t.goal}`));
@@ -169,7 +194,11 @@ export const cont: Command = {
   },
 };
 
+/** Where a task goes when Claude Code is out of quota, in order of preference. */
+const HANDOFF_ORDER = ["codex", "gemini-cli"];
+
 function hasBinary(cmd: string): boolean {
+  if (!cmd) return false;
   try {
     execFileSync(process.platform === "win32" ? "where" : "which", [cmd], { stdio: "ignore" });
     return true;

@@ -7,6 +7,7 @@ import { reduceState } from "../core/state.js";
 import { Checkpoints } from "../core/checkpoint.js";
 import { loadRecovery } from "../core/recovery.js";
 import { unexpectedFiles } from "../core/scope.js";
+import { activeLimits } from "../core/limits.js";
 import { box, c, ago, kv, formatBytes } from "../ui/term.js";
 import { gitAvailable } from "../core/git.js";
 import { type Command, parse, out, json } from "./types.js";
@@ -78,6 +79,7 @@ export const status: Command = {
         unexpected_files: unexpected,
         recovery: recovery ? { generated_at: recovery.generated_at, bytes: recovery.stats.markdown_bytes } : null,
         checkpoint: cps[0]?.name ?? null,
+        usage_limits: activeLimits(project),
       });
       return 0;
     }
@@ -115,6 +117,11 @@ export const status: Command = {
       lines.push(`Recovery: ${recovery ? `${c.green("SAVED")} ${c.dim(`${ago(recovery.generated_at)}, ${formatBytes(recovery.stats.markdown_bytes)}`)}` : c.dim("not saved")}`);
     }
     lines.push(`Checkpoint: ${cps[0] ? `${cps[0].name} ${c.dim(ago(cps[0].created_at))}` : c.dim("none")}`);
+    for (const l of activeLimits(project)) {
+      lines.push("");
+      lines.push(c.yellow(`⚠ ${l.agent_id} hit its usage limit ${ago(l.ts)}`));
+      lines.push(c.dim("  continue now in another agent: agent-state continue"));
+    }
     if (cur.session_id && cur.agent_id) lines.push(c.dim(`Agent: ${cur.agent_id} · last activity ${ago(cur.updated_at)}`));
     out(box("AGENT STATE", lines));
     return 0;
