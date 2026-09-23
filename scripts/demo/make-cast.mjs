@@ -51,6 +51,8 @@ comment("…the refactor goes wrong. Preview first, restore safely (with automat
 execFileSync("sh", ["-c", "echo 'export const broken = true;' > src/auth/session.ts && rm src/routes/oauth.ts"], { cwd });
 type("agent-state restore before-refactor --dry-run");
 run(["restore", "before-refactor", "--dry-run"], { pause: 3.5 });
+// Apply the restore off-camera so the next scene analyzes the real module.
+execFileSync("node", [CLI, "restore", "before-refactor", "--yes", "--no-backup"], { cwd, stdio: "ignore" });
 
 // Scene 4: understanding
 clear();
