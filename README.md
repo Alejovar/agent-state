@@ -13,7 +13,12 @@ Works with **Claude Code**, **Cursor**, **Gemini CLI** and **Codex**, and agent-
 ![Node ≥ 22.13](https://img.shields.io/badge/node-%E2%89%A5%2022.13-brightgreen)
 ![Local-first](https://img.shields.io/badge/cloud-none-lightgrey)
 
+<img src="docs/demo.svg" alt="agent-state demo: status, recovery context re-injected after compaction, safe checkpoint restore, impact analysis" width="100%">
+
 </div>
+
+<details>
+<summary>Recovery output as text</summary>
 
 ```text
 $ agent-state recover
@@ -38,6 +43,8 @@ $ agent-state recover
 ## Tests
 • `npm test` FAILED (22 passed, 1 failed), 7m ago — ⚠ 1 changed file(s) modified since
 ```
+
+</details>
 
 <sub>Real output. 1.4 KB, generated deterministically from the session's events plus `git`, with no LLM call. With the Claude Code hooks installed, it is **injected automatically** after Claude compacts or resumes.</sub>
 

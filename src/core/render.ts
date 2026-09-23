@@ -52,7 +52,8 @@ function sections(r: RecoveryState): Section[] {
     "Important decisions",
     r.decisions.map((d) => {
       const alt = d.alternatives?.length ? ` Rejected: ${d.alternatives.join(", ")}.` : "";
-      return `• #${d.number} ${d.decision}${d.reason ? ` — ${d.reason}` : ""}${alt}`;
+      const reason = d.reason ? ` — ${d.reason.replace(/[.\s]+$/, "")}.` : alt ? "." : "";
+      return `• #${d.number} ${d.decision}${reason}${alt}`;
     }),
   );
   if (r.unexpected_files.length) {
