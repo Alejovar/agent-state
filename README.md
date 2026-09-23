@@ -5,7 +5,7 @@
 **Your AI coding session just ran out of context. Continue exactly where it stopped, verified against your repo, in seconds.**
 
 Local-first working memory, recovery and control for AI coding agents.<br>
-First-class for **Claude Code**, agent-agnostic by design (Codex, Cursor, any CLI agent).
+Works with **Claude Code**, **Cursor**, **Gemini CLI** and **Codex**, and agent-agnostic by design.
 
 [![CI](https://github.com/Alejovar/agent-state/actions/workflows/ci.yml/badge.svg)](https://github.com/Alejovar/agent-state/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/agent-state.svg)](https://www.npmjs.com/package/agent-state)
@@ -61,7 +61,7 @@ It is **not** another coding agent. It's the memory and control layer *around* t
 ```bash
 npm install -g --allow-git=all github:Alejovar/agent-state   # Node ≥ 22.13, no native deps
 cd your-project
-agent-state init --claude       # creates .agent-state/ + installs Claude Code hooks & slash commands
+agent-state init --claude       # or --cursor / --gemini (combine freely): creates .agent-state/ + installs hooks
 ```
 
 > The npm release (`npm install -g agent-state`) is coming in a few days. Until then, install from GitHub as shown above.
@@ -232,9 +232,14 @@ agent-state note next "Add TTL to OAuth state keys"
 
 ## Other agents
 
-- **Codex CLI:** add `notify = ["agent-state", "hook", "codex"]` to `~/.codex/config.toml` (see `agent-state integrate codex`). Turns and requests are recorded; file changes come from git.
-- **Anything else:** `agent-state event FILE_MODIFIED --json '{"path":"src/a.ts"}' --agent cursor`, plus `agent-state recover --agent generic` for plain-text context.
-- Adapters implement a small [`AgentAdapter`](src/adapters/adapter.ts) interface. PRs for new ones are very welcome.
+| Agent | Setup | What is captured |
+|---|---|---|
+| **Cursor** | `agent-state init --cursor` → `.cursor/hooks.json` | prompts, file writes/edits/deletes, shell commands with exit codes, tests, subagents. `preCompact` saves state with the **exact** context usage and the next tool result carries it back. Scope policy enforced on edits |
+| **Gemini CLI** | `agent-state init --gemini` → `.gemini/settings.json` | prompts, `write_file`/`replace`, `run_shell_command` (exit codes, tests), `write_todos`. `PreCompress` saves state and the next turn re-injects it; `SessionStart` (`resume`/`clear`) injects it too. Scope policy enforced on edits |
+| **Codex CLI** | `notify = ["agent-state", "hook", "codex"]` in `~/.codex/config.toml` | turns and requests; file changes come from git |
+| **Anything else** | `agent-state event FILE_MODIFIED --json '{"path":"src/a.ts"}' --agent aider` | whatever you send; `agent-state recover --agent generic` prints plain-text context |
+
+Every hook-based adapter is a thin translation layer over one shared, agent-neutral session core ([`session-core.ts`](src/adapters/session-core.ts)). Adding an agent means mapping its payloads, not re-implementing recovery. PRs are welcome.
 
 ## Privacy & security
 
@@ -290,7 +295,8 @@ The repository wins. Recovery re-verifies files, branch, HEAD and dependencies a
 - [x] Agent control: task contracts, scope detection, warn/confirm/block
 - [x] Context intelligence: drift, optional AI summaries, handoff, provider abstraction
 - [x] Advanced agents: replay, multi-agent sessions and subagents, worktrees, Codex adapter
-- [ ] Cursor / Aider / Gemini CLI adapters
+- [x] Cursor and Gemini CLI adapters
+- [ ] Aider adapter
 - [ ] Tree-sitter based analysis for deeper impact graphs
 - [ ] Opt-in team sync of recovery states
 

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.0
+
+- **Cursor adapter** (`agent-state init --cursor`): sessionStart, beforeSubmitPrompt, pre/postToolUse (+Failure), afterFileEdit, preCompact with exact context usage, subagents, stop, sessionEnd. Recovery is re-injected after compaction through the next tool result. Scope policies map to allow/deny.
+- **Gemini CLI adapter** (`agent-state init --gemini`): SessionStart, BeforeAgent, Before/AfterTool (`write_file`, `replace`, `run_shell_command`, `write_todos`), PreCompress, AfterAgent, SessionEnd.
+- Shared agent-neutral session core (`AgentSession`); the Claude Code adapter now uses it too.
+- `integrate cursor|gemini [--uninstall]`, `doctor` detects every integration.
+- Fix: reinstalling/uninstalling hooks installed through an absolute `node …/cli.js` path no longer duplicates or leaves them behind.
+- Fix: AI `command` providers that ignore stdin no longer crash with EPIPE.
+- Install straight from GitHub (`prepare` builds the CLI).
+
 ## 0.1.0
 
 First release.

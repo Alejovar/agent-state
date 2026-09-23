@@ -12,28 +12,34 @@ import { gitAvailable } from "../core/git.js";
 import { type Command, parse, out, json } from "./types.js";
 import { resolveTask } from "./context.js";
 import { installClaude } from "../integrations/claude.js";
+import { installCursor, installGemini } from "../integrations/others.js";
 
 export const init: Command = {
   name: "init",
   group: "Core",
   summary: "Initialize agent-state in this project",
-  usage: `agent-state init [--claude] [--no-gitignore]
+  usage: `agent-state init [--claude] [--cursor] [--gemini] [--no-gitignore]
 
   Creates .agent-state/ at the repository root (config, event log, state db).
   --claude         also install Claude Code hooks and slash commands (.claude/)
+  --cursor         also install Cursor hooks (.cursor/hooks.json)
+  --gemini         also install Gemini CLI hooks (.gemini/settings.json)
   --no-gitignore   do not add .agent-state/ to .gitignore`,
   run(argv) {
-    const { values } = parse(argv, { claude: { type: "boolean" }, "no-gitignore": { type: "boolean" } }, false);
+    const { values } = parse(argv, { claude: { type: "boolean" }, cursor: { type: "boolean" }, gemini: { type: "boolean" }, "no-gitignore": { type: "boolean" } }, false);
     const { project, created } = Project.init(process.cwd(), { gitignore: !values["no-gitignore"] });
     out(created ? `${c.green("✓")} Project initialized: ${project.root}` : `${c.green("✓")} Already initialized: ${project.root}`);
     out(c.dim(`  state: ${project.paths.state}`));
     if (!project.git.isRepo()) out(c.yellow("  ⚠ Not a git repository — change tracking and checkpoints are limited."));
-    if (values.claude) {
-      const r = installClaude(project);
-      for (const l of r) out(`${c.green("✓")} ${l}`);
-    } else {
+    const lines = [
+      ...(values.claude ? installClaude(project) : []),
+      ...(values.cursor ? installCursor(project) : []),
+      ...(values.gemini ? installGemini(project) : []),
+    ];
+    for (const l of lines) out(`${c.green("✓")} ${l}`);
+    if (!lines.length) {
       out("");
-      out(`Next: ${c.cyan("agent-state init --claude")} to hook into Claude Code, or ${c.cyan('agent-state task new "<goal>"')}.`);
+      out(`Next: ${c.cyan("agent-state init --claude")} (or --cursor / --gemini) to hook into your agent, or ${c.cyan('agent-state task new "<goal>"')}.`);
     }
     return 0;
   },
@@ -158,8 +164,14 @@ export const doctor: Command = {
     const settings = join(project.root, ".claude", "settings.json");
     const local = join(project.root, ".claude", "settings.local.json");
     const hasHooks = [settings, local].some((p) => existsSync(p) && /agent-state[^"]*hook/.test(readText(p)));
+    const cursorHooks = join(project.root, ".cursor", "hooks.json");
+    const geminiSettings = join(project.root, ".gemini", "settings.json");
+    const hasCursor = existsSync(cursorHooks) && readText(cursorHooks).includes("agent-state hook");
+    const hasGemini = existsSync(geminiSettings) && readText(geminiSettings).includes("agent-state hook");
     if (hasHooks) ok("Claude Code hooks installed");
-    else warn("Claude Code hooks not installed (run `agent-state init --claude`)");
+    if (hasCursor) ok("Cursor hooks installed");
+    if (hasGemini) ok("Gemini CLI hooks installed");
+    if (!hasHooks && !hasCursor && !hasGemini) warn("No agent hooks installed (run `agent-state init --claude`, `--cursor` or `--gemini`)");
     const ai = project.config.ai;
     out(kv("AI provider", ai.provider === "none" ? c.dim("none (deterministic only, nothing leaves this machine)") : `${ai.provider}${ai.model ? ` · ${ai.model}` : ""}`));
     const tasks = new TaskService(project).list();

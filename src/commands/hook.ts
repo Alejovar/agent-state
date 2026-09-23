@@ -1,6 +1,9 @@
 import * as fs from "node:fs";
 import { Project } from "../core/project.js";
 import { ClaudeHookHandler, type ClaudeHookInput } from "../adapters/claude-hooks.js";
+import { CursorHookHandler, type CursorHookInput } from "../adapters/cursor.js";
+import { GeminiHookHandler, type GeminiHookInput } from "../adapters/gemini.js";
+import { installCursor, installGemini, uninstallCursor, uninstallGemini } from "../integrations/others.js";
 import { handleCodexNotification, type CodexNotification } from "../adapters/codex.js";
 import { EVENT_TYPES, type EventType } from "../core/events.js";
 import { type Command, parse, out, UsageError } from "./types.js";
@@ -19,33 +22,53 @@ export const hook: Command = {
   name: "hook",
   group: "Integration",
   summary: "Entry point for agent integrations (Claude Code hooks, Codex notify)",
-  usage: `agent-state hook claude-code     reads a Claude Code hook payload on stdin
+  usage: `agent-state hook claude-code     Claude Code hook payload on stdin
+agent-state hook cursor          Cursor hook payload on stdin
+agent-state hook gemini          Gemini CLI hook payload on stdin
 agent-state hook codex <json>     Codex CLI notify payload (last argument)
 
 Hooks never fail the agent: errors are logged to .agent-state/reports/hook-errors.log.`,
   async run(argv) {
     const [agent, ...rest] = argv;
-    const project = Project.tryOpen(process.env.CLAUDE_PROJECT_DIR ?? process.cwd());
-    // Not an agent-state project: stay silent so a global hook config is harmless.
-    if (!project) return 0;
+    if (!["claude-code", "claude", "codex", "cursor", "gemini", "gemini-cli"].includes(agent ?? "")) {
+      throw new UsageError(`Unknown agent "${agent ?? ""}". Supported: claude-code, cursor, gemini, codex.`);
+    }
+    const raw = agent === "codex" ? rest.at(-1) ?? (await readStdin()) : await readStdin();
+    let input: Record<string, unknown> = {};
     try {
-      if (agent === "claude-code" || agent === "claude") {
-        const raw = await readStdin();
-        const input = JSON.parse(raw || "{}") as ClaudeHookInput;
-        const res = new ClaudeHookHandler(project).handle(input);
-        if (res.stdout) process.stdout.write(res.stdout);
-        if (res.stderr) process.stderr.write(res.stderr);
-        return res.exitCode;
-      }
-      if (agent === "codex") {
-        const payload = rest.at(-1) ?? (await readStdin());
-        handleCodexNotification(project, JSON.parse(payload || "{}") as CodexNotification);
-        return 0;
-      }
-      throw new UsageError(`Unknown agent "${agent ?? ""}". Supported: claude-code, codex.`);
+      input = JSON.parse(raw || "{}") as Record<string, unknown>;
+    } catch {
+      input = {};
+    }
+    // Each agent tells us the project root differently.
+    const roots = (input.workspace_roots as string[] | undefined) ?? [];
+    const start =
+      agent === "cursor"
+        ? roots[0] ?? process.env.CURSOR_PROJECT_DIR ?? process.cwd()
+        : agent === "gemini" || agent === "gemini-cli"
+          ? process.env.GEMINI_PROJECT_DIR ?? (input.cwd as string | undefined) ?? process.cwd()
+          : process.env.CLAUDE_PROJECT_DIR ?? (input.cwd as string | undefined) ?? process.cwd();
+    const project = Project.tryOpen(start);
+    // Not an agent-state project: stay silent (valid empty JSON for agents that require it).
+    if (!project) {
+      if (agent === "cursor" || agent?.startsWith("gemini")) process.stdout.write(agent === "cursor" && input.hook_event_name === "preToolUse" ? '{"permission":"allow"}' : "{}");
+      return 0;
+    }
+    try {
+      if (raw.trim() && !Object.keys(input).length) throw new Error(`Malformed hook payload: ${raw.slice(0, 200)}`);
+      let res: { stdout?: string; stderr?: string; exitCode: number } = { exitCode: 0 };
+      if (agent === "claude-code" || agent === "claude") res = new ClaudeHookHandler(project).handle(input as unknown as ClaudeHookInput);
+      else if (agent === "cursor") res = new CursorHookHandler(project).handle(input as unknown as CursorHookInput);
+      else if (agent === "gemini" || agent === "gemini-cli") res = new GeminiHookHandler(project).handle(input as unknown as GeminiHookInput);
+      else handleCodexNotification(project, input as CodexNotification);
+      if (res.stdout) process.stdout.write(res.stdout);
+      if (res.stderr) process.stderr.write(res.stderr);
+      return res.exitCode;
     } catch (err) {
-      if (err instanceof UsageError) throw err;
       logHookError(project, err);
+      // Fail open, but keep permission hooks well-formed.
+      if (agent === "cursor") process.stdout.write(input.hook_event_name === "preToolUse" ? '{"permission":"allow"}' : "{}");
+      else if (agent?.startsWith("gemini")) process.stdout.write("{}");
       return 0;
     } finally {
       project.close();
@@ -103,10 +126,12 @@ export const integrate: Command = {
   name: "integrate",
   aliases: ["install"],
   group: "Integration",
-  summary: "Install/uninstall agent integrations (claude-code hooks + slash commands, codex notify)",
+  summary: "Install/uninstall agent integrations (Claude Code, Cursor, Gemini CLI, Codex)",
   usage: `agent-state integrate claude-code [--shared] [--uninstall]
     --shared   write hooks to .claude/settings.json (committed) instead of settings.local.json
-agent-state integrate codex   prints the ~/.codex/config.toml line to add`,
+agent-state integrate cursor [--uninstall]    writes .cursor/hooks.json
+agent-state integrate gemini [--uninstall]    writes .gemini/settings.json
+agent-state integrate codex                   prints the ~/.codex/config.toml line to add`,
   run(argv) {
     const { values, positionals } = parse(argv, { shared: { type: "boolean" }, uninstall: { type: "boolean" } });
     const agent = positionals[0] ?? "claude-code";
@@ -114,6 +139,14 @@ agent-state integrate codex   prints the ~/.codex/config.toml line to add`,
     if (agent === "claude-code" || agent === "claude") {
       const lines = values.uninstall ? uninstallClaude(project) : installClaude(project, { shared: values.shared });
       for (const l of lines) out(`${c.green("✓")} ${l}`);
+      return 0;
+    }
+    if (agent === "cursor") {
+      for (const l of values.uninstall ? uninstallCursor(project) : installCursor(project)) out(`${c.green("✓")} ${l}`);
+      return 0;
+    }
+    if (agent === "gemini" || agent === "gemini-cli") {
+      for (const l of values.uninstall ? uninstallGemini(project) : installGemini(project)) out(`${c.green("✓")} ${l}`);
       return 0;
     }
     if (agent === "codex") {
@@ -124,6 +157,6 @@ agent-state integrate codex   prints the ~/.codex/config.toml line to add`,
       out(c.dim("Codex's notify hook reports turns (requests + final message); file changes are taken from git."));
       return 0;
     }
-    throw new UsageError(`Unknown agent "${agent}". Supported: claude-code, codex.`);
+    throw new UsageError(`Unknown agent "${agent}". Supported: claude-code, cursor, gemini, codex.`);
   },
 };

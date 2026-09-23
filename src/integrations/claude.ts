@@ -14,7 +14,11 @@ export function invocation(): string {
   }
 }
 
-const MARK = "agent-state hook";
+/** True for hook commands written by agent-state (binary on PATH or `node …/agent-state/dist/cli.js`). */
+export function isOurHook(command: unknown): boolean {
+  const c = String(command ?? "");
+  return /\bhook (?:claude-code|cursor|gemini)\b/.test(c) && c.includes("agent-state");
+}
 
 interface HookEntry {
   matcher?: string;
@@ -44,7 +48,7 @@ export function mergeHooks(settings: Record<string, unknown>, cmd: string): Reco
   const hooks = { ...((settings.hooks as Record<string, HookEntry[]> | undefined) ?? {}) };
   for (const [event, entries] of Object.entries(hooks)) {
     hooks[event] = (entries ?? [])
-      .map((e) => ({ ...e, hooks: (e.hooks ?? []).filter((x) => !String(x.command ?? "").includes(MARK)) }))
+      .map((e) => ({ ...e, hooks: (e.hooks ?? []).filter((x) => !isOurHook(x.command)) }))
       .filter((e) => e.hooks.length > 0);
     if (!hooks[event]!.length) delete hooks[event];
   }
@@ -56,7 +60,7 @@ export function removeHooks(settings: Record<string, unknown>): Record<string, u
   const hooks = { ...((settings.hooks as Record<string, HookEntry[]> | undefined) ?? {}) };
   for (const [event, entries] of Object.entries(hooks)) {
     hooks[event] = entries
-      .map((e) => ({ ...e, hooks: e.hooks.filter((x) => !String(x.command ?? "").includes(MARK)) }))
+      .map((e) => ({ ...e, hooks: e.hooks.filter((x) => !isOurHook(x.command)) }))
       .filter((e) => e.hooks.length > 0);
     if (!hooks[event]!.length) delete hooks[event];
   }

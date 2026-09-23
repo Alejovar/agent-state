@@ -1,7 +1,7 @@
 {
   "name": "agent-state",
-  "version": "0.1.0",
-  "description": "Local-first memory, recovery and control layer for AI coding agents. Lose your Claude Code session, recover the working context in seconds.",
+  "version": "0.2.0",
+  "description": "Local-first memory, recovery and control layer for AI coding agents (Claude Code, Cursor, Gemini CLI, Codex). Lose your session, recover the working context in seconds.",
   "type": "module",
   "bin": {
     "agent-state": "dist/cli.js"
@@ -26,18 +26,19 @@
     "prepare": "tsc -p tsconfig.json"
   },
   "keywords": [
-    "ai",
     "agents",
-    "claude-code",
-    "codex",
-    "cursor",
-    "context",
-    "memory",
-    "recovery",
+    "ai",
     "checkpoint",
-    "llm",
+    "claude-code",
+    "cli",
+    "codex",
+    "context",
+    "cursor",
     "developer-tools",
-    "cli"
+    "gemini-cli",
+    "llm",
+    "memory",
+    "recovery"
   ],
   "author": "Alejovar",
   "license": "MIT",

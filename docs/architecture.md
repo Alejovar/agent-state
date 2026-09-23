@@ -3,7 +3,7 @@
 agent-state is a local, event-sourced state layer that sits next to an AI coding agent. It observes, records, verifies and restores. It never drives the agent.
 
 ```text
-Agent (Claude Code, Codex, …)
+Agent (Claude Code, Cursor, Gemini CLI, Codex, …)
    │ native signals (hooks, notify)
    ▼
 Adapter  ──────────────►  normalized events  ──►  .agent-state/events/*.jsonl   (append-only, source of truth)
@@ -31,8 +31,8 @@ Adapter  ──────────────►  normalized events  ─�
 |---|---|---|
 | Project | directory containing `.agent-state/` | one per worktree |
 | Task | `task_<n>` (shown as `#n`) | independent of sessions; holds the goal, status, base commit/branch and pre-existing dirty files |
-| Session | `cc_<native id>` (Claude Code), `cx_<thread>` (Codex) | shown as `#<task>-A`, `-B`… in start order |
-| Agent | `agent_id` on every event (`claude-code`, `claude-code:<subagent type>`, `codex`, `cli`) | |
+| Session | `cc_<id>` (Claude Code), `cu_<conversation>` (Cursor), `gm_<id>` (Gemini CLI), `cx_<thread>` (Codex) | shown as `#<task>-A`, `-B`… in start order |
+| Agent | `agent_id` on every event (`claude-code`, `claude-code:<subagent type>`, `cursor`, `gemini-cli`, `codex`, `cli`) | |
 | Event | `evt_<time><seq><rand>` | time-sortable and monotonic within a process |
 | Decision | `number` (project-wide sequence) | `DECISION_RECORDED` + `decisions/decision-NNNN.md` |
 | Checkpoint | name | `refs/agent-state/checkpoints/<name>` + `checkpoints/<name>.json` |
@@ -109,6 +109,17 @@ Every list item carries `evidence: verified | recorded | inferred | ai`.
 6. **Persist** the JSON (full) and the Markdown (budgeted), and keep the previous JSON for comparison.
 
 Recovery repeats steps 1–5 against the repository *now*, then diffs against the saved JSON: branch changed, HEAD moved (new commits are listed), referenced files missing or changed, recorded dependencies gone, task completed.
+
+## Adapters
+
+`adapters/session-core.ts` (`AgentSession`) holds all agent-neutral behavior: session/task attribution, prompts, file and command tracking, test detection, todo snapshots, scope gates, compaction, pending re-injection and context pressure. Each adapter only maps native payloads onto it and neutral results back to native output:
+
+| Adapter | Native surface | Re-injection after compaction |
+|---|---|---|
+| `claude-hooks.ts` | Claude Code hooks (`.claude/settings*.json`) | `SessionStart` with `source=compact` |
+| `cursor.ts` | Cursor hooks (`.cursor/hooks.json`, v1) | next `postToolUse` → `additional_context` |
+| `gemini.ts` | Gemini CLI hooks (`.gemini/settings.json`) | next `BeforeAgent`/`AfterTool` → `additionalContext` |
+| `codex.ts` | Codex `notify` | n/a (turn notifications only) |
 
 ## Claude Code integration boundary
 
