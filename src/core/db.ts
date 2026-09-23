@@ -172,9 +172,19 @@ export function openDb(path: string): Db {
   mkdirSync(dirname(path), { recursive: true });
   const DatabaseSync = sqlite();
   const raw = new DatabaseSync(path);
-  raw.exec("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000; PRAGMA synchronous = NORMAL;");
-  raw.exec(SCHEMA);
-  const v = raw.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string } | undefined;
-  if (!v) raw.prepare("INSERT INTO meta (key, value) VALUES ('schema_version', ?)").run(String(SCHEMA_VERSION));
+  try {
+    raw.exec("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000; PRAGMA synchronous = NORMAL;");
+    raw.exec(SCHEMA);
+    const v = raw.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string } | undefined;
+    if (!v) raw.prepare("INSERT INTO meta (key, value) VALUES ('schema_version', ?)").run(String(SCHEMA_VERSION));
+  } catch (err) {
+    // Release the file before reporting: Windows can't rename or delete an open file.
+    try {
+      raw.close();
+    } catch {
+      // not open
+    }
+    throw err;
+  }
   return new Db(raw);
 }
