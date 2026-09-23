@@ -32,6 +32,14 @@ export interface Task {
   sessions: Session[];
 }
 
+/** `updated_at` = the task's latest event of any kind (prompts, edits, commands…), not just lifecycle changes. */
+function withActivity(tasks: Map<string, Task>, activity: Map<string, string>): void {
+  for (const [id, ts] of activity) {
+    const t = tasks.get(id);
+    if (t && ts > t.updated_at) t.updated_at = ts;
+  }
+}
+
 export function taskIdFor(n: number): string {
   return `task_${n}`;
 }
@@ -129,39 +137,37 @@ export function reduceTasks(events: AgentEvent[]): { tasks: Map<string, Task>; s
   return { tasks, sessions };
 }
 
-const LIFECYCLE_TYPES = [
-  "TASK_CREATED",
-  "TASK_UPDATED",
-  "SESSION_STARTED",
-  "SESSION_ENDED",
-  "USER_REQUEST",
-] as const;
+/** Only these events shape tasks and sessions; everything else is working state. */
+const LIFECYCLE_TYPES = ["TASK_CREATED", "TASK_UPDATED", "SESSION_STARTED", "SESSION_ENDED"] as const;
 
 export class TaskService {
   constructor(private readonly project: Project) {}
 
   load(): { tasks: Map<string, Task>; sessions: Map<string, Session> } {
-    const events = this.project.db().query({ types: [...LIFECYCLE_TYPES] });
-    return reduceTasks(events);
+    const db = this.project.db();
+    const result = reduceTasks(db.query({ types: [...LIFECYCLE_TYPES] }));
+    withActivity(result.tasks, db.lastActivity());
+    return result;
   }
 
   list(): Task[] {
     return [...this.load().tasks.values()].sort((a, b) => b.number - a.number);
   }
 
+  /** One task, reduced from its own events only (indexed query; cheap on large histories). */
   get(taskId: string): Task | null {
-    return this.load().tasks.get(taskId) ?? null;
+    const db = this.project.db();
+    const { tasks } = reduceTasks(db.query({ task_id: taskId, types: [...LIFECYCLE_TYPES] }));
+    withActivity(tasks, db.lastActivity(taskId));
+    return tasks.get(taskId) ?? null;
   }
 
-  /** The task agent activity should be attributed to right now. */
+  /** The task agent activity should be attributed to right now. Runs on every hook: keep it cheap. */
   currentTask(): Task | null {
     const cur = this.project.current();
-    const { tasks } = this.load();
-    if (cur.task_id) {
-      const t = tasks.get(cur.task_id);
-      if (t && t.status !== "COMPLETED" && t.status !== "ABANDONED") return t;
-    }
-    return null;
+    if (!cur.task_id) return null;
+    const t = this.get(cur.task_id);
+    return t && t.status !== "COMPLETED" && t.status !== "ABANDONED" ? t : null;
   }
 
   /** Latest task that is not completed/abandoned — what `continue` resumes. */

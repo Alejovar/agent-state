@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.0
+
+Fixes and hardening; no new commands.
+
+- **Faster on long histories:** hooks read only the current task's events (indexed) and check context pressure on prompts and turn ends, not on every tool call. With 50,000 recorded events a hook takes ~65 ms (was ~95 ms; ~55 ms on an empty project).
+- **Self-healing:** a corrupted `state.db` is set aside and rebuilt from the event log automatically (only on real corruption; a busy database is never touched). A malformed `config.yaml` pauses recording, because privacy and redaction settings can't be honored, and says so in the agent's session, `status` and `doctor`, without ever breaking the agent. An unsupported Node.js version gets a clear message.
+- **Better task boundaries:** small talk ("hola", "ok gracias", "continue") no longer creates a task named after it; a fresh session after more than `recovery.resume_window_hours` (72 h) without any activity on the task (prompts, edits, commands) starts a new task instead of silently joining the stale one, and mentions it so you can `task switch` back.
+- **doctor** detects hooks installed by an older version (e.g. missing `StopFailure`), invalid agent settings JSON and a broken `config.yaml`; re-running `agent-state init` updates old hooks.
+- Codex notifications now go through the same session core as the other adapters.
+
 ## 0.5.0
 
 Polish of everything that exists; no new concepts.

@@ -88,8 +88,9 @@ Events are immutable. Every derived view (tasks, sessions, working state, histor
 └── reports/             drift.json, handoffs, hook-errors.log
 ```
 
-* Hooks **only append** a single line per event (`O_APPEND`, one `write()`), so parallel tool calls cannot interleave. They never open SQLite.
-* The projection ingests new bytes lazily by byte offset and tolerates partial trailing lines and corrupt lines.
+* Events are written as a single line each (`O_APPEND`, one `write()`), so parallel tool calls cannot interleave.
+* The projection ingests new bytes lazily by byte offset and tolerates partial trailing lines and corrupt lines. Hooks read through task-scoped, indexed queries, so their cost stays flat as history grows (~65 ms with 50k events, ~55 ms empty).
+* `state.db` is disposable: if it is ever unreadable it is set aside and rebuilt from the event log automatically. A malformed `config.yaml` falls back to defaults with a warning instead of failing.
 * Read-modify-write operations (task numbering, per-session scratch) use a small lock-file mutex.
 * SQLite comes from Node's built-in `node:sqlite`, so there are no native dependencies.
 

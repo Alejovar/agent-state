@@ -31,6 +31,8 @@ export interface EventQuery {
   task_id?: string;
   session_id?: string;
   types?: EventType[];
+  /** payload.kind values (e.g. note kinds), filtered in SQL. */
+  kinds?: string[];
   path?: string;
   text?: string;
   since?: string;
@@ -87,6 +89,7 @@ export class Db {
     if (q.task_id) (where.push("task_id = ?"), args.push(q.task_id));
     if (q.session_id) (where.push("session_id = ?"), args.push(q.session_id));
     if (q.types?.length) (where.push(`type IN (${q.types.map(() => "?").join(",")})`), args.push(...q.types));
+    if (q.kinds?.length) (where.push(`json_extract(payload, '$.kind') IN (${q.kinds.map(() => "?").join(",")})`), args.push(...q.kinds));
     if (q.path) (where.push("(path = ? OR text LIKE ?)"), args.push(q.path, `%${q.path.toLowerCase()}%`));
     if (q.text) {
       for (const word of q.text.toLowerCase().split(/\s+/).filter(Boolean)) {
@@ -102,6 +105,18 @@ export class Db {
       (q.limit ? ` LIMIT ${Math.max(1, Math.floor(q.limit))}` : "");
     const rows = this.raw.prepare(sql).all(...args) as unknown as EventRow[];
     return rows.map(rowToEvent);
+  }
+
+  /** Timestamp of the latest event per task (indexed on task_id, ts). */
+  lastActivity(taskId?: string): Map<string, string> {
+    const rows = (
+      taskId
+        ? this.raw.prepare("SELECT task_id, MAX(ts) AS ts FROM events WHERE task_id = ?").all(taskId)
+        : this.raw.prepare("SELECT task_id, MAX(ts) AS ts FROM events WHERE task_id IS NOT NULL GROUP BY task_id").all()
+    ) as { task_id: string | null; ts: string | null }[];
+    const out = new Map<string, string>();
+    for (const r of rows) if (r.task_id && r.ts) out.set(r.task_id, r.ts);
+    return out;
   }
 
   count(): number {

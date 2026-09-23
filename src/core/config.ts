@@ -14,6 +14,8 @@ export interface Config {
     inject_on_startup: "full" | "brief" | "off";
     /** Tell the agent (once per session) how to record decisions and failed approaches. */
     agent_guidance: boolean;
+    /** A fresh session only joins an unfinished task active within this many hours; older ones are just mentioned. */
+    resume_window_hours: number;
   };
   reminders: {
     /** Remind the agent of related decisions/failed approaches right before it edits a file or reruns a failing command. */
@@ -59,7 +61,7 @@ export interface Config {
 
 export const DEFAULT_CONFIG: Config = {
   version: 1,
-  recovery: { max_bytes: 6000, auto_inject: true, inject_on_startup: "brief", agent_guidance: true },
+  recovery: { max_bytes: 6000, auto_inject: true, inject_on_startup: "brief", agent_guidance: true, resume_window_hours: 72 },
   reminders: { enabled: true },
   context: { window_tokens: 200_000, fresh_at: 0.6, compact_at: 0.94 },
   scope: { policy: "warn" },
@@ -79,9 +81,24 @@ function merge<T>(base: T, over: unknown): T {
   return out as T;
 }
 
+/** Set when config.yaml could not be parsed; the defaults are used instead. */
+export let configError: string | null = null;
+
 export function loadConfig(path: string): Config {
+  configError = null;
   if (!existsSync(path)) return structuredClone(DEFAULT_CONFIG);
-  const parsed = YAML.parse(readFileSync(path, "utf8")) as { context?: { fresh_at?: number; warn_at?: number } } | null;
+  let parsed: { context?: { fresh_at?: number; warn_at?: number } } | null;
+  try {
+    parsed = YAML.parse(readFileSync(path, "utf8")) as typeof parsed;
+  } catch (err) {
+    // A typo in the config must never take the agent's hooks down with it.
+    configError = `${path}: ${(err as Error).message.split("\n")[0]}`;
+    return structuredClone(DEFAULT_CONFIG);
+  }
+  if (parsed !== null && typeof parsed !== "object") {
+    configError = `${path}: expected a YAML mapping at the top level`;
+    return structuredClone(DEFAULT_CONFIG);
+  }
   const cfg = merge(structuredClone(DEFAULT_CONFIG), parsed);
   // Older configs only had warn_at: honor it as the fresh-start threshold.
   if (parsed?.context?.fresh_at === undefined && typeof parsed?.context?.warn_at === "number") cfg.context.fresh_at = parsed.context.warn_at;
@@ -97,6 +114,7 @@ recovery:
   auto_inject: true      # re-inject recovery context after the agent compacts, resumes or clears
   inject_on_startup: brief  # full | brief | off — on a fresh start while a task is unfinished
   agent_guidance: true   # tell the agent how to record decisions and failed approaches
+  resume_window_hours: 72  # a fresh session joins an unfinished task only if it was active this recently
 
 reminders:
   enabled: true          # remind the agent of related decisions right before it edits a file

@@ -2,7 +2,8 @@
 import { readFileSync } from "node:fs";
 import { COMMANDS, findCommand } from "./commands/registry.js";
 import { UsageError } from "./commands/types.js";
-import { NotInitializedError, Project } from "./core/project.js";
+import { ConfigBrokenError, NotInitializedError, Project } from "./core/project.js";
+import { configError } from "./core/config.js";
 import { CheckpointError } from "./core/checkpoint.js";
 import { GitError } from "./core/git.js";
 import { c } from "./ui/term.js";
@@ -43,7 +44,15 @@ process.stdout.on("error", (err: NodeJS.ErrnoException) => {
   throw err;
 });
 
+const [NODE_MAJOR, NODE_MINOR] = process.versions.node.split(".").map(Number) as [number, number];
+const NODE_OK = NODE_MAJOR > 22 || (NODE_MAJOR === 22 && NODE_MINOR >= 13);
+
 async function main(argv: string[]): Promise<number> {
+  if (!NODE_OK) {
+    process.stderr.write(`agent-state needs Node.js 22.13 or newer (it uses the built-in node:sqlite). You have ${process.versions.node}.\n`);
+    // Hooks must never break the agent, even on an unsupported runtime.
+    return argv[0] === "hook" ? 0 : 1;
+  }
   const [name, ...rest] = argv;
   // Bare `agent-state` inside a project answers the most common question: where do things stand?
   if (!name && Project.tryOpen()) return await findCommand("status")!.run([]);
@@ -64,6 +73,7 @@ async function main(argv: string[]): Promise<number> {
     return 0;
   }
   const cmd = findCommand(name);
+  if (cmd && name !== "hook") warnConfig();
   if (!cmd) {
     process.stderr.write(`Unknown command "${name}".\n\n${help()}\n`);
     return 2;
@@ -75,12 +85,18 @@ async function main(argv: string[]): Promise<number> {
   return await cmd.run(rest);
 }
 
+function warnConfig(): void {
+  const p = Project.tryOpen();
+  p?.close();
+  if (configError) process.stderr.write(`${c.yellow("⚠ config.yaml has an error; agent-state is not recording until it is fixed:")} ${configError}\n`);
+}
+
 main(process.argv.slice(2)).then(
   (code) => {
     process.exitCode = code;
   },
   (err: unknown) => {
-    if (err instanceof UsageError || err instanceof NotInitializedError || err instanceof CheckpointError || err instanceof GitError) {
+    if (err instanceof UsageError || err instanceof NotInitializedError || err instanceof CheckpointError || err instanceof GitError || err instanceof ConfigBrokenError) {
       process.stderr.write(`${c.red("error:")} ${err.message}\n`);
       process.exitCode = err instanceof UsageError ? 2 : 1;
       return;

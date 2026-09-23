@@ -54,6 +54,17 @@ Hooks never fail the agent: errors are logged to .agent-state/reports/hook-error
       if (agent === "cursor" || agent?.startsWith("gemini")) process.stdout.write(agent === "cursor" && input.hook_event_name === "preToolUse" ? '{"permission":"allow"}' : "{}");
       return 0;
     }
+    if (project.configProblem) {
+      logHookError(project, new Error(`paused: config.yaml error: ${project.configProblem}`));
+      const note = `agent-state is paused: .agent-state/config.yaml has an error (${project.configProblem}). Fix it to resume recording.`;
+      const event = String(input.hook_event_name ?? "");
+      if (agent === "claude-code" || agent === "claude") {
+        if (event === "UserPromptSubmit" || event === "SessionStart") process.stdout.write(JSON.stringify({ systemMessage: note }));
+      } else if (agent === "cursor") process.stdout.write(event === "preToolUse" ? '{"permission":"allow"}' : event === "sessionStart" ? JSON.stringify({ additional_context: note }) : "{}");
+      else if (agent?.startsWith("gemini")) process.stdout.write(event === "SessionStart" || event === "BeforeAgent" ? JSON.stringify({ systemMessage: note }) : "{}");
+      project.close();
+      return 0;
+    }
     try {
       if (raw.trim() && !Object.keys(input).length) throw new Error(`Malformed hook payload: ${raw.slice(0, 200)}`);
       let res: { stdout?: string; stderr?: string; exitCode: number } = { exitCode: 0 };

@@ -10,7 +10,9 @@ import { unexpectedFiles } from "../core/scope.js";
 import { activeLimits } from "../core/limits.js";
 import { box, c, ago, kv, formatBytes, confirm } from "../ui/term.js";
 import { gitAvailable } from "../core/git.js";
-import { isOurHook } from "../integrations/claude.js";
+import { configError } from "../core/config.js";
+import { isOurHook, hookConfig } from "../integrations/claude.js";
+import { cursorHooks, geminiHooks } from "../integrations/others.js";
 import { homedir } from "node:os";
 import { execFileSync } from "node:child_process";
 import { type Command, parse, out, json } from "./types.js";
@@ -228,6 +230,9 @@ export const doctor: Command = {
       return 1;
     }
     ok(`Project: ${project.root}`);
+    if (configError) {
+      warn(`config.yaml has an error; nothing is being recorded until it is fixed: ${configError}`);
+    }
     const evDir = project.paths.events;
     const files = existsSync(evDir) ? readdirSync(evDir).filter((f) => f.endsWith(".jsonl")) : [];
     const bytes = files.reduce((a, f) => a + statSync(join(evDir, f)).size, 0);
@@ -249,6 +254,29 @@ export const doctor: Command = {
       }
     }
     let problems = 0;
+    // Hooks written by an older version miss newer events (e.g. StopFailure for usage limits).
+    const expected: Record<string, string[]> = {
+      "Claude Code": Object.keys(hookConfig("x")),
+      Cursor: Object.keys(cursorHooks("x")),
+      "Gemini CLI": Object.keys(geminiHooks("x")),
+    };
+    for (const [agent, file] of integrationFiles) {
+      if (!existsSync(file) || !installed.has(agent)) continue;
+      let hooks: Record<string, unknown> = {};
+      try {
+        hooks = ((JSON.parse(readText(file)) as { hooks?: Record<string, unknown> }).hooks ?? {}) as Record<string, unknown>;
+      } catch {
+        problems++;
+        warn(`${file} is not valid JSON; ${agent} will ignore its hooks.`);
+        continue;
+      }
+      const ours = Object.entries(hooks).filter(([, v]) => JSON.stringify(v).match(/hook (?:claude-code|cursor|gemini)/)).map(([k]) => k);
+      const missing = expected[agent]!.filter((e) => !ours.includes(e));
+      if (ours.length && missing.length) {
+        problems++;
+        warn(`${agent} hooks are from an older agent-state (missing: ${missing.join(", ")}). Run \`agent-state init\` to update them.`);
+      }
+    }
     for (const [agent, cmds] of installed) {
       const cmd = cmds[0]!;
       const script = /^node\s+"([^"]+)"/.exec(cmd)?.[1];

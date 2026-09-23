@@ -69,7 +69,7 @@ export class EventStore {
 
   /** Opens the projection and ingests any events appended since the last sync. */
   sync(): Db {
-    if (!this.db) this.db = openDb(this.paths.db);
+    if (!this.db) this.db = this.openOrRepair();
     const db = this.db;
     if (!existsSync(this.paths.events)) return db;
     const offsets = db.getOffsets();
@@ -85,6 +85,33 @@ export class EventStore {
     }
     if (batch.length || Object.keys(newOffsets).length) db.ingest(batch, newOffsets);
     return db;
+  }
+
+  /**
+   * The database is only a projection of the event log, so a damaged file is
+   * set aside and rebuilt from the log instead of failing.
+   */
+  private openOrRepair(): Db {
+    let db: Db | null = null;
+    try {
+      db = openDb(this.paths.db);
+      db.count();
+      return db;
+    } catch (err) {
+      try {
+        db?.close();
+      } catch {
+        // already unusable
+      }
+      // Only genuine corruption is repaired; "busy" or permission errors are real failures.
+      if (!/not a database|malformed|corrupt|file is encrypted/i.test((err as Error).message)) throw err;
+      const aside = `${this.paths.db}.corrupt-${Date.now()}`;
+      for (const suffix of ["", "-wal", "-shm"]) {
+        if (existsSync(this.paths.db + suffix)) renameSync(this.paths.db + suffix, aside + suffix);
+      }
+      process.stderr.write(`agent-state: state.db was unreadable (${(err as Error).message}); rebuilt it from the event log. Old file kept as ${aside}\n`);
+      return openDb(this.paths.db);
+    }
   }
 
   /** Drops the projection and rebuilds it from the event log. */

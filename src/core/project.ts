@@ -1,12 +1,18 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
-import { loadConfig, writeDefaultConfig, type Config } from "./config.js";
+import { configError, loadConfig, writeDefaultConfig, type Config } from "./config.js";
 import { canonicalPath, findStateRoot, gitToplevel, pathsFor, type ProjectPaths } from "./paths.js";
 import { Redactor } from "./redact.js";
 import { EventStore, readJson, writeJson, type EmitInput } from "./store.js";
 import { Git } from "./git.js";
 import type { AgentEvent } from "./events.js";
 import type { Db } from "./db.js";
+
+export class ConfigBrokenError extends Error {
+  constructor(problem: string) {
+    super(`config.yaml has an error, so agent-state is not recording anything until it is fixed: ${problem}`);
+  }
+}
 
 export class NotInitializedError extends Error {
   constructor(cwd: string) {
@@ -27,9 +33,12 @@ export class Project {
   readonly store: EventStore;
   readonly redactor: Redactor;
   private _config: Config;
+  /** Set when config.yaml is malformed: nothing is recorded until it is fixed. */
+  readonly configProblem: string | null;
 
   private constructor(readonly paths: ProjectPaths) {
     this._config = loadConfig(paths.config);
+    this.configProblem = configError;
     this.redactor = new Redactor(this._config.redaction.patterns);
     this.store = new EventStore(paths, this.redactor);
     this.git = new Git(paths.root);
@@ -85,6 +94,9 @@ export class Project {
   }
 
   emit(input: EmitInput): AgentEvent {
+    // With an unreadable config we can't honor the user's privacy/redaction
+    // settings, so we record nothing rather than record with the wrong rules.
+    if (this.configProblem) throw new ConfigBrokenError(this.configProblem);
     return this.store.append(input);
   }
 

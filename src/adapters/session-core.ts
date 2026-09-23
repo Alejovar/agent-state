@@ -122,6 +122,14 @@ export class AgentSession {
   /** Returns recovery text to inject into the agent, or null. */
   start(source: StartSource, meta: Record<string, unknown> = {}): string | null {
     let task = this.task() ?? this.tasks.latestUnfinished();
+    // A brand-new session after days away is probably new work: don't silently
+    // merge it into the old task, just mention that task (see startContext).
+    let stale: Task | null = null;
+    const windowMs = this.project.config.recovery.resume_window_hours * 3_600_000;
+    if (task && source === "startup" && Date.now() - Date.parse(task.updated_at) > windowMs) {
+      stale = task;
+      task = null;
+    }
     const git = this.project.git;
     const isRepo = git.isRepo();
     this.project.emit({
@@ -135,8 +143,17 @@ export class AgentSession {
       s.reminded = {};
     });
     const guidance = this.project.config.recovery.agent_guidance ? GUIDANCE : null;
-    const body = this.startContext(task, source);
+    const body = stale
+      ? `[agent-state] The last unfinished task, #${stale.number} "${clip(stale.goal, 120)}", was last active ${Math.round((Date.now() - Date.parse(stale.updated_at)) / 86_400_000)} day(s) ago, so this session starts fresh. If you are continuing it, run \`agent-state task switch ${stale.number}\` and then \`agent-state recover\`.`
+      : this.startContext(task, source);
     return [body, guidance].filter(Boolean).join("\n\n") || null;
+  }
+
+  /** Registers the session without building any context (agents that cannot receive it, e.g. Codex notify). */
+  attach(source: StartSource, meta: Record<string, unknown> = {}): void {
+    const task = this.task() ?? this.tasks.latestUnfinished();
+    this.project.emit({ type: "SESSION_STARTED", ...this.base(task), payload: { ...meta, source } });
+    this.project.setCurrent({ session_id: this.session_id, agent_id: this.agent, task_id: task?.id ?? null });
   }
 
   private startContext(task: Task | null, source: StartSource): string | null {
@@ -166,7 +183,7 @@ export class AgentSession {
   prompt(text: string, meta: Record<string, unknown> = {}): Task | null {
     const prompt = text.trim();
     let task = this.task();
-    if (!task && prompt && !prompt.startsWith("/")) {
+    if (!task && describesWork(prompt)) {
       task = this.tasks.create(firstLine(prompt), { agent_id: this.actor, session_id: this.session_id });
       // Attribute the already-running session to the new task.
       this.project.emit({ type: "SESSION_STARTED", ...this.base(task), payload: { ...meta, source: "attach" } });
@@ -268,7 +285,7 @@ export class AgentSession {
         const rejected = d.alternatives?.length ? ` Rejected: ${d.alternatives.join(", ")}.` : "";
         items.push({ key: `decision:${d.number}`, text: `decision #${d.number}: ${clip(d.decision, 160)}${d.reason ? ` (because ${clip(d.reason, 140)})` : ""}.${rejected}` });
       }
-      const notes = db.query({ types: ["NOTE_RECORDED"], ...(task ? { task_id: task.id } : {}) });
+      const notes = db.query({ types: ["NOTE_RECORDED"], kinds: ["failed_attempt", "issue", "resolved"], ...(task ? { task_id: task.id } : {}) });
       const resolved = new Set(notes.filter((n) => (n.payload as unknown as NotePayload).kind === "resolved").map((n) => String(n.payload.text).toLowerCase()));
       for (const e of notes) {
         const n = e.payload as unknown as NotePayload;
@@ -507,4 +524,19 @@ function lastLine(output: string): string {
   const lines = output.split("\n").map((l) => l.trim()).filter(Boolean);
   const err = [...lines].reverse().find((l) => /error|fail|exception|cannot|not found|denied/i.test(l));
   return clip(err ?? lines.at(-1) ?? "", 140);
+}
+
+const SMALL_TALK = new Set([
+  "hi", "hello", "hey", "hola", "buenas", "buenos", "dias", "días", "tardes", "noches", "ok", "okay", "k", "thanks", "thank", "you",
+  "gracias", "yes", "no", "si", "sí", "sure", "continue", "continua", "continúa", "sigue", "go", "on", "ahead", "please", "pls",
+  "por", "favor", "que", "qué", "tal", "good", "morning", "great", "perfect", "perfecto", "listo", "done", "ready",
+]);
+
+/** Whether a prompt describes work worth naming a task after ("hola", "ok gracias", "/help" don't). */
+export function describesWork(prompt: string): boolean {
+  const p = prompt.trim();
+  if (!p || p.startsWith("/")) return false;
+  const words = p.toLowerCase().split(/\s+/).map((w) => w.replace(/[^\p{L}\p{N}]/gu, "")).filter(Boolean);
+  if (words.length < 2) return p.length >= 20;
+  return !words.every((w) => SMALL_TALK.has(w));
 }

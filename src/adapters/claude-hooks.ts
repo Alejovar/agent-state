@@ -119,11 +119,11 @@ export class ClaudeHookHandler {
             output: responseText(success ? resp : input.error ?? resp),
             ...(typeof ti.description === "string" ? { description: ti.description } : {}),
           });
-          return this.pressure(s, input);
+          return { exitCode: 0 };
         }
         if (FILE_TOOLS.has(tool) && success) {
           s.afterFileChange(id, tool, filePath(s, ti, cwd));
-          return this.pressure(s, input);
+          return { exitCode: 0 };
         }
         if (tool === "TodoWrite" && success && Array.isArray(ti.todos)) {
           s.todos((ti.todos as Record<string, unknown>[]).map((t) => ({ content: String(t.content ?? t.activeForm ?? ""), status: t.status })));
