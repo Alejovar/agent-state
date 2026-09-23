@@ -1,5 +1,5 @@
-import { existsSync, statSync } from "node:fs";
-import { dirname, join, resolve, relative, sep, isAbsolute } from "node:path";
+import { existsSync, realpathSync, statSync } from "node:fs";
+import { basename, dirname, join, resolve, relative, sep, isAbsolute } from "node:path";
 import { execFileSync } from "node:child_process";
 
 export const STATE_DIR = ".agent-state";
@@ -63,10 +63,32 @@ export function gitToplevel(cwd: string): string | null {
   }
 }
 
+/**
+ * Canonical absolute path: symlinks resolved and, on Windows, 8.3 short names
+ * (RUNNER~1) expanded, so the same location always compares equal no matter
+ * which form git or the agent reported. Works for paths that don't exist yet.
+ */
+export function canonicalPath(p: string): string {
+  const abs = resolve(p);
+  const tail: string[] = [];
+  let cur = abs;
+  for (;;) {
+    try {
+      const real = realpathSync.native(cur);
+      return tail.length ? join(real, ...tail.reverse()) : real;
+    } catch {
+      const parent = dirname(cur);
+      if (parent === cur) return abs;
+      tail.push(basename(cur));
+      cur = parent;
+    }
+  }
+}
+
 /** Project-relative POSIX path, or null when `file` lies outside the project. */
 export function toProjectPath(root: string, file: string, cwd: string = root): string | null {
-  const abs = isAbsolute(file) ? file : resolve(cwd, file);
-  const rel = relative(root, abs);
+  const abs = canonicalPath(isAbsolute(file) ? file : resolve(cwd, file));
+  const rel = relative(canonicalPath(root), abs);
   if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) return null;
   return rel.split(sep).join("/");
 }

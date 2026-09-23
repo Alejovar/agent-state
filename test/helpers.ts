@@ -20,7 +20,7 @@ export interface Repo {
 }
 
 export function makeRepo(files: Record<string, string> = {}, opts: { git?: boolean } = {}): Repo {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), "agent-state-test-")));
+  const root = realpathSync.native(mkdtempSync(join(tmpdir(), "agent-state-test-")));
   const write = (path: string, content: string) => {
     const abs = join(root, path);
     mkdirSync(dirname(abs), { recursive: true });

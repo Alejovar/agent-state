@@ -1,7 +1,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { loadConfig, writeDefaultConfig, type Config } from "./config.js";
-import { findStateRoot, gitToplevel, pathsFor, type ProjectPaths } from "./paths.js";
+import { canonicalPath, findStateRoot, gitToplevel, pathsFor, type ProjectPaths } from "./paths.js";
 import { Redactor } from "./redact.js";
 import { EventStore, readJson, writeJson, type EmitInput } from "./store.js";
 import { Git } from "./git.js";
@@ -50,18 +50,18 @@ export class Project {
   static open(cwd: string = process.cwd()): Project {
     const root = findStateRoot(cwd);
     if (!root) throw new NotInitializedError(cwd);
-    return new Project(pathsFor(root));
+    return new Project(pathsFor(canonicalPath(root)));
   }
 
   static tryOpen(cwd: string = process.cwd()): Project | null {
     const root = findStateRoot(cwd);
-    return root ? new Project(pathsFor(root)) : null;
+    return root ? new Project(pathsFor(canonicalPath(root))) : null;
   }
 
   /** Creates `.agent-state/` at the git toplevel (or cwd). Idempotent. */
   static init(cwd: string = process.cwd(), opts: { gitignore?: boolean } = {}): { project: Project; created: boolean } {
     const existing = findStateRoot(cwd);
-    const root = gitToplevel(cwd) ?? existing ?? cwd;
+    const root = canonicalPath(gitToplevel(cwd) ?? existing ?? cwd);
     const paths = pathsFor(root);
     const created = !existsSync(paths.state);
     for (const dir of [
