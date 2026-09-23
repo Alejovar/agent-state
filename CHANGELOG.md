@@ -11,6 +11,7 @@ Fixes from a full code review and a live end-to-end test with Claude Code.
 - Prompts in languages written without spaces (Chinese, Japanese, Korean, Thai) create tasks again.
 - `task switch` counts as activity, so the task isn't treated as stale; short gaps are reported in hours.
 - A broken `config.yaml` is logged once an hour instead of on every hook; the hook error log is capped and rotated.
+- `drift` counts code imports as evidence (e.g. `node:sqlite`), not only declared dependencies.
 - The current task is resolved once per hook; Codex uses an indexed lookup. Hooks stay flat as history grows (~71 ms empty vs ~74 ms with 50,000 events on the same machine).
 
 ## 0.6.0

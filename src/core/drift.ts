@@ -30,6 +30,8 @@ interface Tech {
   deps: RegExp;
   /** Files proving usage. */
   files?: RegExp;
+  /** Import specifiers proving usage (built-ins like node:sqlite never show up as dependencies). */
+  imports?: RegExp;
   group?: string;
 }
 
@@ -39,7 +41,7 @@ const TECH: Tech[] = [
   { name: "Redis", mention: /\bRedis\b/, deps: /^(redis|ioredis|connect-redis|bullmq|bull|github\.com\/redis\/go-redis.*|github\.com\/go-redis\/redis.*|redis-py|aioredis)$/i, files: /redis/i },
   { name: "PostgreSQL", mention: /\bPostgres(QL)?\b/i, deps: /^(pg|postgres|psycopg2?(-binary)?|asyncpg|github\.com\/lib\/pq|github\.com\/jackc\/pgx.*|tokio-postgres|@neondatabase\/serverless|@vercel\/postgres)$/i, files: /postgres|\.sql$/i, group: "db" },
   { name: "MySQL", mention: /\bMySQL\b|\bMariaDB\b/i, deps: /^(mysql2?|pymysql|mysqlclient|github\.com\/go-sql-driver\/mysql)$/i, group: "db" },
-  { name: "SQLite", mention: /\bSQLite\b/i, deps: /^(sqlite3?|better-sqlite3|rusqlite|github\.com\/mattn\/go-sqlite3|@libsql\/client)$/i, files: /\.(sqlite|db)$/, group: "db" },
+  { name: "SQLite", mention: /\bSQLite\b/i, deps: /^(sqlite3?|better-sqlite3|rusqlite|github\.com\/mattn\/go-sqlite3|@libsql\/client)$/i, files: /\.(sqlite|db)$/, imports: /^(node:sqlite|sqlite3|bun:sqlite)$/, group: "db" },
   { name: "MongoDB", mention: /\bMongo(DB)?\b|\bMongoose\b/i, deps: /^(mongodb|mongoose|pymongo|motor|go\.mongodb\.org\/mongo-driver)$/i, group: "db" },
   { name: "Prisma", mention: /\bPrisma\b/, deps: /^(prisma|@prisma\/client)$/, files: /schema\.prisma$/ },
   { name: "Drizzle", mention: /\bDrizzle\b/, deps: /^drizzle-orm$/ },
@@ -91,8 +93,9 @@ function loadDeps(project: Project, files: string[]): Set<string> {
   return deps;
 }
 
-function techEvidence(t: Tech, deps: Set<string>, files: string[]): string[] {
+function techEvidence(t: Tech, deps: Set<string>, files: string[], imports: Set<string> = new Set()): string[] {
   const out: string[] = [];
+  if (t.imports) for (const i of imports) if (t.imports.test(i)) out.push(`import ${i}`);
   for (const d of deps) if (t.deps.source !== "^$" && t.deps.test(d)) out.push(`dependency ${d}`);
   if (t.files) for (const f of files) if (t.files.test(f) && !DOC_CANDIDATES.test(f)) out.push(f);
   return out.slice(0, 5);
@@ -142,6 +145,7 @@ export function detectDrift(project: Project, idx: ProjectIndex, only?: string):
   }
   const docs = only ? [only] : files.filter((f) => DOC_CANDIDATES.test(f) && !f.includes("node_modules/") && !f.startsWith("CHANGELOG"));
   const deps = loadDeps(project, files);
+  const imports = new Set(idx.all().flatMap((f) => f.imports));
   const pkgJson = files.includes("package.json") ? (JSON.parse(readFileSync(join(project.root, "package.json"), "utf8")) as { scripts?: Record<string, string> }) : null;
   const scripts = new Set(Object.keys(pkgJson?.scripts ?? {}));
   const makefile = files.find((f) => f === "Makefile");
@@ -201,11 +205,11 @@ export function detectDrift(project: Project, idx: ProjectIndex, only?: string):
       if (TECH.filter((t) => t.mention.test(prose)).length >= 3 || (prose.match(/,/g)?.length ?? 0) >= 4 || EXAMPLE.test(prose)) continue;
       for (const t of TECH) {
         if (reportedTech.has(t.name) || !t.mention.test(prose) || !USAGE.test(prose)) continue;
-        const ev = techEvidence(t, deps, files);
+        const ev = techEvidence(t, deps, files, imports);
         if (ev.length) continue;
         // Competing technology in the same group strengthens the finding.
         const rivals = TECH.filter((o) => o.group && o.group === t.group && o.name !== t.name)
-          .map((o) => ({ o, ev: techEvidence(o, deps, files) }))
+          .map((o) => ({ o, ev: techEvidence(o, deps, files, imports) }))
           .filter((x) => x.ev.length);
         const deterministicOnly = t.deps.source === "^$" && !t.files;
         if (deterministicOnly) continue;
