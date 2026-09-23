@@ -13,7 +13,9 @@ Works with **Claude Code**, **Cursor**, **Gemini CLI** and **Codex**, and agent-
 ![Node ≥ 22.13](https://img.shields.io/badge/node-%E2%89%A5%2022.13-brightgreen)
 ![Local-first](https://img.shields.io/badge/cloud-none-lightgrey)
 
-<img src="docs/demo.gif" alt="agent-state demo: status, recovery context re-injected after compaction, safe checkpoint restore, impact analysis" width="100%">
+<img src="docs/demo.gif" alt="agent-state demo: Claude Code works on a task, the context fills up, the next session receives the recovered state automatically and continues" width="100%">
+
+<sub>Claude Code screens are a re-creation; every agent-state output in the demo is real, produced through the actual hooks.</sub>
 
 </div>
 
