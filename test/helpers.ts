@@ -49,7 +49,13 @@ export function makeRepo(files: Record<string, string> = {}, opts: { git?: boole
       git("commit", "-qm", msg);
     },
     cleanup() {
-      rmSync(root, { recursive: true, force: true });
+      // Best effort: on Windows an open handle (e.g. after a failed assertion)
+      // makes rm throw, which would hide the real test failure.
+      try {
+        rmSync(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+      } catch {
+        // leave it for the OS temp cleaner
+      }
     },
   };
 }
