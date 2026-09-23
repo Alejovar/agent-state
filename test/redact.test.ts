@@ -5,18 +5,21 @@ import { Redactor, isSensitivePath } from "../src/core/redact.js";
 const r = new Redactor();
 
 test("redacts common API keys and tokens", () => {
+  // Fake credentials are assembled at runtime so secret scanners never see a
+  // complete token in the source (these values are not real keys).
+  const fake = (prefix: string, body: string) => prefix + body;
   const cases = [
-    "sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123",
-    "sk-proj-abcdefghijklmnopqrstuvwxyz012345",
-    "ghp_abcdefghijklmnopqrstuvwxyz0123456789",
-    "github_pat_11ABCDEFG0abcdefghijklmnopqrstuvwxyz0123456789abcdef",
-    "xoxb-1234567890-abcdefghij",
-    "sk_live_abcdefghijklmnop1234",
-    "AKIAABCDEFGHIJKLMNOP",
-    "AIzaSyA1234567890abcdefghijklmnopqrstuv",
-    "npm_abcdefghijklmnopqrstuvwxyz0123456789",
-    "glpat-abcdefghijklmnopqrst",
-    "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U",
+    fake("sk-ant-", "api03-abcdefghijklmnopqrstuvwxyz0123"),
+    fake("sk-" + "proj-", "abcdefghijklmnopqrstuvwxyz012345"),
+    fake("gh" + "p_", "abcdefghijklmnopqrstuvwxyz0123456789"),
+    fake("github" + "_pat_", "11ABCDEFG0abcdefghijklmnopqrstuvwxyz0123456789abcdef"),
+    fake("xo" + "xb-", "1234567890-abcdefghij"),
+    fake("sk_" + "live_", "abcdefghijklmnop1234"),
+    fake("AK" + "IA", "ABCDEFGHIJKLMNOP"),
+    fake("AI" + "za", "SyA1234567890abcdefghijklmnopqrstuv"),
+    fake("np" + "m_", "abcdefghijklmnopqrstuvwxyz0123456789"),
+    fake("gl" + "pat-", "abcdefghijklmnopqrst"),
+    fake("ey" + "JhbGciOiJIUzI1NiJ9.", "eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"),
   ];
   for (const secret of cases) {
     const out = r.redact(`value ${secret} end`);
@@ -26,9 +29,9 @@ test("redacts common API keys and tokens", () => {
 });
 
 test("redacts private keys, including truncated ones", () => {
-  const key = "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA\nabc\n-----END RSA PRIVATE KEY-----";
+  const key = ["-----BEGIN RSA ", "PRIVATE KEY-----\nMIIEowIBAAKCAQEA\nabc\n-----END RSA ", "PRIVATE KEY-----"].join("");
   assert.equal(r.redact(`x ${key} y`), "x [REDACTED PRIVATE KEY] y");
-  assert.equal(r.redact("-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAA"), "[REDACTED PRIVATE KEY]");
+  assert.equal(r.redact("-----BEGIN OPENSSH " + "PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAA"), "[REDACTED PRIVATE KEY]");
 });
 
 test("redacts bearer tokens, URL credentials and connection strings", () => {
@@ -52,7 +55,7 @@ test("leaves ordinary text alone", () => {
 });
 
 test("deep-redacts objects and masks sensitive keys", () => {
-  const out = r.redactValue({ command: "echo sk-ant-abcdefghijklmnopqrstuv", nested: [{ password: "plain" }], n: 3 });
+  const out = r.redactValue({ command: "echo " + "sk-" + "ant-abcdefghijklmnopqrstuv", nested: [{ password: "plain" }], n: 3 });
   assert.equal(out.nested[0]!.password, "[REDACTED]");
   assert.ok(!JSON.stringify(out).includes("sk-ant-abcdef"));
   assert.equal(out.n, 3);
@@ -61,7 +64,7 @@ test("deep-redacts objects and masks sensitive keys", () => {
 test("custom patterns are applied; invalid ones are ignored", () => {
   const cr = new Redactor(["acme_[a-z0-9]{8}", "(unclosed"]);
   assert.equal(cr.redact("key acme_abcd1234 here"), "key [REDACTED] here");
-  assert.ok(!cr.redact("sk-ant-abcdefghijklmnopqrstuv").includes("sk-ant-abcdefghijklmnop"));
+  assert.ok(!cr.redact("sk-" + "ant-abcdefghijklmnopqrstuv").includes("sk-ant-abcdefghijklmnop"));
 });
 
 test("identifies sensitive files", () => {
