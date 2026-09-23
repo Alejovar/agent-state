@@ -59,10 +59,12 @@ It is **not** another coding agent. It's the memory and control layer *around* t
 ## Quickstart
 
 ```bash
-npm install -g agent-state      # Node ≥ 22.13, no native deps
+npm install -g --allow-git=all github:Alejovar/agent-state   # Node ≥ 22.13, no native deps
 cd your-project
 agent-state init --claude       # creates .agent-state/ + installs Claude Code hooks & slash commands
 ```
+
+> The npm release (`npm install -g agent-state`) is coming in a few days. Until then, install from GitHub as shown above.
 
 That's it. Work in Claude Code as usual. agent-state records what happens. When Claude compacts, it saves the state first and re-injects it afterwards. When you start a new session, it tells Claude that a task is unfinished.
 
