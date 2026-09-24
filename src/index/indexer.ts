@@ -106,6 +106,8 @@ export class ProjectIndex {
         } catch {
           continue;
         }
+        // Submodules and symlinks to directories are listed by git but are not files.
+        if (!st.isFile()) continue;
         const prev = known.get(path);
         if (prev && prev.size === st.size && prev.mtime === st.mtimeMs) {
           unchanged++;

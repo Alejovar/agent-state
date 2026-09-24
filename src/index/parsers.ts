@@ -123,8 +123,13 @@ function parseJs(src: string): ParseResult {
   return { imports: uniq(imports), symbols: uniq(symbols), routes };
 }
 
+/** Blanks triple-quoted strings (docstrings) but keeps line numbers. */
+function stripPyTripleQuoted(src: string): string {
+  return src.replace(/("""|\'\'\')[\s\S]*?\1/g, (m) => m.replace(/[^\n]/g, " "));
+}
+
 function parsePython(src: string): ParseResult {
-  const s = stripComments(src, "hash");
+  const s = stripComments(stripPyTripleQuoted(src), "hash");
   const imports: string[] = [];
   for (const m of s.matchAll(/^\s*from\s+(\.*[\w.]*)\s+import\s+(\([^)]*\)|[^\n]+)/gm)) {
     const mod = m[1]!;

@@ -112,3 +112,18 @@ test("drift ignores examples, enumerations, quotes and bare file names", () => {
     repo.cleanup();
   }
 });
+
+test("drift: a sentence saying a path was deleted is not drift; a stale claim still is", () => {
+  const repo = makeRepo({ ...AUTH_APP, "docs/architecture.md": "# A\nThe old `src/legacy/auth.ts` was deleted.\nHandlers live in `src/handlers/login.ts`.\n" });
+  try {
+    const p = initProject(repo);
+    const idx = new ProjectIndex(p);
+    idx.update();
+    const f = detectDrift(p, idx, "docs/architecture.md");
+    assert.ok(!f.some((x) => x.claim.includes("src/legacy/auth.ts")));
+    assert.ok(f.some((x) => x.claim.includes("src/handlers/login.ts")));
+    p.close();
+  } finally {
+    repo.cleanup();
+  }
+});

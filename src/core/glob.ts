@@ -1,7 +1,18 @@
-/** Minimal glob → RegExp for scope rules: `**`, `*`, `?`, `{a,b}`; POSIX separators. */
+/**
+ * Minimal glob → RegExp for scope rules: `**`, `*`, `?`, `{a,b}`. Follows
+ * .gitignore conventions: "/" or "./" anchors to the root, a pattern without
+ * "/" matches at any depth, a trailing "/" means "everything below".
+ */
 export function globToRegExp(glob: string): RegExp {
-  let g = glob.trim().replace(/^\.\//, "");
+  // Accept Windows separators and a leading "/" or "./" (both mean "from the project root").
+  let g = glob.trim().replace(/\\/g, "/").replace(/^\.\//, "");
+  const anchored = g.startsWith("/");
+  g = g.replace(/^\/+/, "");
   if (g.endsWith("/")) g += "**";
+  // A bare name without wildcards or extension ("database") means that directory and everything below.
+  const dirLike = !/[*?{]/.test(g) && !/\.[^/]+$/.test(g);
+  // Like .gitignore: a pattern with no "/" (e.g. "*.md", "database") matches at any depth.
+  if (!anchored && !g.includes("/") && g !== "**") g = "**/" + g;
   let re = "";
   for (let i = 0; i < g.length; i++) {
     const c = g[i]!;
@@ -21,8 +32,6 @@ export function globToRegExp(glob: string): RegExp {
       }
     } else re += escape(c);
   }
-  // A bare directory name matches everything below it.
-  const dirLike = !/[*?{]/.test(g) && !/\.[^/]+$/.test(g);
   return new RegExp(`^${re}${dirLike ? "(?:/.*)?" : ""}$`);
 }
 

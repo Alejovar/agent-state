@@ -76,7 +76,7 @@ const TECH: Tech[] = [
   { name: "Tokio", mention: /\bTokio\b/, deps: /^tokio$/ },
 ];
 
-const NEGATION = /\b(not|against|no longer|never|don't|do not|doesn't|instead of|rather than|replaced|removed|migrat\w* (away )?from|deprecated|avoid|without|legacy|previously|used to|was using|TODO|planned|will|could|may|might|consider)\b/i;
+const NEGATION = /\b(not|against|deleted|delete|was|were|old|obsolete|no longer|never|don't|do not|doesn't|instead of|rather than|replaced|removed|migrat\w* (away )?from|deprecated|avoid|without|legacy|previously|used to|was using|TODO|planned|will|could|may|might|consider)\b/i;
 const EXAMPLE = /\b(e\.g\.|for example|such as|example|contradict\w*|drift|demo|in our (?:live )?test)\b/i;
 const USAGE = /\b(uses?|using|built (on|with)|powered by|backed by|stores?|persist\w*|based on|relies on|via|with|runs? on|implemented (with|using)|we use|stack|database|auth\w*|sessions?)\b/i;
 
@@ -167,7 +167,8 @@ export function detectDrift(project: Project, idx: ProjectIndex, only?: string):
     const reportedPaths = new Set<string>();
     for (const { n, text, code, sample } of lines(md)) {
       // 1. Paths that no longer exist.
-      for (const m of sample ? [] : text.matchAll(PATHLIKE)) {
+      // "The old `src/x.ts` was deleted" states that the path is gone: not drift.
+      for (const m of sample || NEGATION.test(text) ? [] : text.matchAll(PATHLIKE)) {
         const raw = (m[1] ?? m[2] ?? "").replace(/^\.\//, "").replace(/[),.:;]+$/, "").replace(/:\d+(:\d+)?$/, "");
         if (!raw || !looksLikeRepoPath(raw) || reportedPaths.has(raw)) continue;
         const candidates = [raw, posix.normalize(posix.join(docDir, raw)), raw.replace(/\/$/, "")];

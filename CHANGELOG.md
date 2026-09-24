@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.4
+
+Audit of the index, scope and drift.
+
+- **Scope globs follow `.gitignore` conventions:** a leading `/` or `./` anchors to the project root (before, `/src/**` matched nothing, so every file was flagged as out of scope), Windows `\` separators work, a pattern without `/` such as `*.md` or `database` matches at any depth, and a bare directory name covers everything below it.
+- **Python analysis:** imports mentioned inside docstrings are no longer treated as real imports.
+- **Index:** submodules and symlinks to directories are skipped instead of being read as files.
+- **Drift:** a sentence that says a path was deleted ("the old `src/x.ts` was deleted") is no longer reported as drift.
+
 ## 0.6.3
 
 - **Review brief:** files whose names contain spaces or non-ASCII characters (`mi archivo.ts`, `ñandú.ts`) are analyzed correctly. Git quotes such paths and appends a tab after names with spaces, so they were missed or counted as entirely new. Code lines that start with `++` or `--` are no longer mistaken for diff headers.

@@ -1,6 +1,6 @@
 {
   "name": "agent-state",
-  "version": "0.6.3",
+  "version": "0.6.4",
   "description": "Local-first memory, recovery and control layer for AI coding agents (Claude Code, Cursor, Gemini CLI, Codex). Lose your session, recover the working context in seconds.",
   "type": "module",
   "bin": {

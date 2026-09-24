@@ -122,3 +122,39 @@ test("globs and path classification", () => {
   assert.equal(classify("docs/architecture.md"), "documentation");
   assert.equal(classify("src/auth/session.ts"), "source");
 });
+
+test("scope globs follow .gitignore conventions", () => {
+  const cases: [string, string, boolean][] = [
+    ["/src/**", "src/a.ts", true],
+    ["src\\auth\\**", "src/auth/x.ts", true],
+    ["*.md", "docs/x.md", true],
+    ["/*.md", "docs/x.md", false],
+    ["/*.md", "README.md", true],
+    ["database", "database/schema.sql", true],
+    ["database", "src/database/x.ts", true],
+    ["database", "databases/x.ts", false],
+    ["src/auth/", "src/authz/x.ts", false],
+    [".env", "config/.env", true],
+  ];
+  for (const [g, p, want] of cases) assert.equal(globToRegExp(g).test(p), want, `${g} vs ${p}`);
+});
+
+test("python docstrings are not imports; a symlinked directory doesn't break indexing", async () => {
+  const py = parseFile("pkg/m.py", 'from .. import util\n"""\nimport fake_in_docstring\n"""\nimport real\n');
+  assert.deepEqual(py.imports.sort(), ["..util", "real"]);
+  const { symlinkSync } = await import("node:fs");
+  const repo = makeRepo({ "src/a.ts": "export const a = 1;\n", "vendor/lib/x.ts": "export {}\n" });
+  try {
+    if (process.platform !== "win32") {
+      symlinkSync("vendor/lib", join(repo.root, "linked.ts"));
+      repo.commit("symlink");
+    }
+    const p = initProject(repo);
+    const idx = new ProjectIndex(p);
+    assert.doesNotThrow(() => idx.update());
+    assert.ok(idx.file("src/a.ts"));
+    p.close();
+  } finally {
+    repo.cleanup();
+  }
+});
