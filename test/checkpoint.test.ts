@@ -165,3 +165,47 @@ test("restore treats file names literally (no pathspec globbing)", { skip: proce
     repo.cleanup();
   }
 });
+
+test("restore handles a directory that became a file (and the reverse), exec bits and staged files", () => {
+  const repo = makeRepo({ "lib/thing": "a\n", "run.sh": "#!/bin/sh\necho hi\n" });
+  try {
+    const p = initProject(repo);
+    const cps = new Checkpoints(p);
+    repo.write("notes.txt", "wip\n");
+    repo.git("add", "notes.txt");
+    cps.create("cp1");
+    rmSync(join(repo.root, "lib"), { recursive: true });
+    repo.write("lib", "now a file\n");
+    rmSync(join(repo.root, "notes.txt"));
+    const res = cps.restore("cp1");
+    assert.equal(readFileSync(join(repo.root, "lib/thing"), "utf8"), "a\n");
+    assert.equal(readFileSync(join(repo.root, "notes.txt"), "utf8"), "wip\n");
+    assert.ok(res.index_restored);
+    assert.match(repo.git("status", "--porcelain"), /^A  notes\.txt$/m);
+    // …and back: the backup holds `lib` as a file.
+    cps.restore(res.backup!, { backup: false });
+    assert.equal(readFileSync(join(repo.root, "lib"), "utf8"), "now a file\n");
+    p.close();
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test("back-to-back restores never overwrite an earlier backup", () => {
+  const repo = makeRepo({ "a.txt": "1\n" });
+  try {
+    const p = initProject(repo);
+    const cps = new Checkpoints(p);
+    cps.create("base");
+    repo.write("a.txt", "2\n");
+    const first = cps.restore("base").backup!;
+    repo.write("a.txt", "3\n");
+    const second = cps.restore("base").backup!;
+    assert.notEqual(first, second);
+    cps.restore(first, { backup: false });
+    assert.equal(readFileSync(join(repo.root, "a.txt"), "utf8"), "2\n", "the first backup still holds its state");
+    p.close();
+  } finally {
+    repo.cleanup();
+  }
+});

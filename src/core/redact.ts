@@ -46,8 +46,38 @@ export const BUILTIN_RULES: RedactionRule[] = [
     // KEY=value / KEY: value where KEY looks sensitive (env files, CLI flags, YAML).
     name: "sensitive-assignment",
     pattern:
-      /\b([A-Za-z0-9_.-]*(?:PASSWORD|PASSWD|PWD|SECRET|TOKEN|API_?KEY|ACCESS_?KEY|PRIVATE_?KEY|CREDENTIALS?|AUTH|SESSION_?KEY|CLIENT_?SECRET|DATABASE_URL|DB_URL|CONNECTION_STRING|DSN)[A-Za-z0-9_.-]*)(\s*[:=]\s*)(["']?)(?!\[REDACTED|(?:Bearer|Basic|Token)\b)([^\s"'`,;]{3,})\3/gi,
+      /\b([A-Za-z0-9_.-]*(?:PASSWORD|PASSWD|PWD|SECRET|TOKEN|API[_-]?KEY|ACCESS[_-]?KEY|PRIVATE[_-]?KEY|CREDENTIALS?|AUTH|SESSION[_-]?KEY|CLIENT[_-]?SECRET|DATABASE_URL|DB_URL|CONNECTION_STRING|DSN)[A-Za-z0-9_.-]*)(\s*[:=]\s*)(["']?)(?!\[REDACTED|(?:Bearer|Basic|Token)\b)([^\s"'`,;]{3,})\3/gi,
     replace: `$1$2$3${R}$3`,
+  },
+  {
+    // "password": "…" in JSON / JS objects
+    name: "json-sensitive-field",
+    pattern: /("(?:[A-Za-z0-9_.-]*(?:password|passwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret|credentials?)[A-Za-z0-9_.-]*)"\s*:\s*")([^"]{3,})"/gi,
+    replace: `$1${R}"`,
+  },
+  {
+    // curl -u user:password / --user user:password
+    name: "curl-user",
+    pattern: /((?:^|\s)(?:-u|--user)[\s=]+["']?[^\s:"']+:)([^\s"']+)/g,
+    replace: `$1${R}`,
+  },
+  {
+    // https://<token>@host (token used as the whole userinfo)
+    name: "url-token",
+    pattern: /\b([a-z][a-z0-9+.-]*:\/\/)([A-Za-z0-9_\-]{20,})@/gi,
+    replace: `$1${R}@`,
+  },
+  {
+    // registry logins: docker/podman/helm/oras/nerdctl … login -p|--password <secret>
+    name: "registry-login",
+    pattern: /(\b(?:docker|podman|nerdctl|helm|oras|skopeo)\b[^\n|;&]*\blogin\b[^\n|;&]*?\s(?:-p|--password)[\s=]+)(["']?)[^\s"']+\2/g,
+    replace: `$1$2${R}$2`,
+  },
+  {
+    // sshpass -p <password>, az login … -p <password>, redis-cli -a <password>
+    name: "cli-password",
+    pattern: /(\bsshpass\s+-p\s*|\baz\b[^\n|;&]*\blogin\b[^\n|;&]*?\s-p\s+|\bredis-cli\b[^\n|;&]*?\s-a\s+)(["']?)[^\s"']+\2/g,
+    replace: `$1$2${R}$2`,
   },
   {
     name: "password-flag",

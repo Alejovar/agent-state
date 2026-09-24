@@ -74,3 +74,27 @@ test("identifies sensitive files", () => {
   assert.ok(!isSensitivePath(".env.example"));
   assert.ok(!isSensitivePath("src/env.ts"));
 });
+
+test("real-world CLI and payload secrets are redacted", () => {
+  const cases: [string, string][] = [
+    ["curl -u admin:S3cretPass https://api.example.com", "S3cretPass"],
+    ["git clone https://0123456789abcdef0123456789abcdef01234567@github.com/o/r.git", "0123456789abcdef0123456789abcdef01234567"],
+    ["docker login -p hunter2hunter2 registry.io", "hunter2hunter2"],
+    ['docker login --password="hunter2hunter2" r.io', "hunter2hunter2"],
+    ['{"password": "hunter2", "user": "bob"}', "hunter2"],
+    ["redis-cli -h h -a myRedisPass123 ping", "myRedisPass123"],
+    ["sshpass -p MyPassw0rd ssh user@host", "MyPassw0rd"],
+    ["az login --service-principal -u app -p Az5ecretValue --tenant t", "Az5ecretValue"],
+    ["x-api-key: abcdef0123456789abcdef0123456789", "abcdef0123456789abcdef0123456789"],
+  ];
+  for (const [input, secret] of cases) {
+    const out = r.redact(input);
+    assert.ok(!out.includes(secret), `leaked ${secret}: ${out}`);
+  }
+});
+
+test("common commands with -p / -u flags are left alone", () => {
+  for (const c of ["mkdir -p src/auth", "docker run -p 8080:80 nginx", "ssh -p 2222 user@host", 'curl -u "$USER" https://x', "git clone https://github.com/o/r.git", "psql -U app -d prod", "npm install -D vitest"]) {
+    assert.equal(r.redact(c), c);
+  }
+});

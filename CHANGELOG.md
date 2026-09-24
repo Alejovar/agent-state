@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.2
+
+- **Security: more secret formats are redacted before anything is written:** `curl -u user:password`, tokens used as the whole userinfo of a URL (`https://<token>@github.com/…`), `docker|podman|helm … login -p/--password`, `sshpass -p`, `az login … -p`, `redis-cli -a`, sensitive fields in JSON (`"password": "…"`) and hyphenated header names (`x-api-key`). Everyday flags like `mkdir -p`, `docker run -p 8080:80` and `ssh -p 2222` are left alone.
+- **Restore:** a path that changed between file and directory no longer aborts the restore halfway (deletions now happen before writes, and the index is restored as it should be). Verified with exec bits, symlinks, staged files and ignored files.
+- **Restore backups are never overwritten:** two restores within the same second used the same backup name and the second replaced the first. Backup names are now unique.
+
 ## 0.6.1
 
 Fixes from a full code review and a live end-to-end test with Claude Code.

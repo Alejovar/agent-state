@@ -202,24 +202,32 @@ export class Checkpoints {
     const plan = this.plan(name);
     let backup: string | null = null;
     if (opts.backup !== false) {
-      backup = `pre-restore-${new Date().toISOString().replace(/[-:]/g, "").replace(/\..*/, "")}`;
-      this.create(backup, { force: true, auto: true, message: `automatic backup before restoring ${name}`, task_id: opts.task_id ?? null });
+      // Unique name: a backup must never overwrite an earlier backup.
+      const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.(\d+)Z$/, "$1");
+      backup = `pre-restore-${stamp}`;
+      for (let n = 2; existsSync(this.metaPath(backup)); n++) backup = `pre-restore-${stamp}-${n}`;
+      this.create(backup, { auto: true, message: `automatic backup before restoring ${name}`, task_id: opts.task_id ?? null });
     }
     const git = this.project.git;
     const write = [...plan.create, ...plan.modify];
+    // Delete first: a path that is a file now may need to become a directory
+    // (or the reverse) before the checkpoint's version can be written.
+    for (const p of plan.delete) {
+      try {
+        rmSync(join(this.project.root, p), { force: true });
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException).code;
+        // Already replaced by a directory the restore needs: nothing to delete.
+        if (code === "EISDIR" || code === "ERR_FS_EISDIR" || code === "EPERM") continue;
+        throw new GitError(`Could not delete ${p}: ${(err as Error).message}`);
+      }
+    }
     if (write.length) {
       git.run(["restore", `--source=${plan.checkpoint.commit}`, "--worktree", "--pathspec-from-file=-", "--pathspec-file-nul"], {
         input: write.join("\0") + "\0",
         // File names are data, never pathspec patterns (a file named "*.ts" must not match everything).
         env: { GIT_LITERAL_PATHSPECS: "1" },
       });
-    }
-    for (const p of plan.delete) {
-      try {
-        rmSync(join(this.project.root, p), { force: true });
-      } catch (err) {
-        throw new GitError(`Could not delete ${p}: ${(err as Error).message}`);
-      }
     }
     let index_restored = false;
     if (plan.head_matches) {
