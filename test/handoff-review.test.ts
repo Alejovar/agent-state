@@ -114,3 +114,23 @@ test("review brief: a clean change says so", () => {
     repo.cleanup();
   }
 });
+
+test("review brief handles quoted paths and code lines that look like diff headers", () => {
+  const repo = makeRepo({ "src/mi archivo.ts": "a\n", "src/ñandú.ts": "x\n", "src/sql.ts": "-- old comment\n++counter;\n" });
+  try {
+    const p = initProject(repo);
+    hook(p, { hook_event_name: "UserPromptSubmit", prompt: "Touch odd files" });
+    repo.write("src/mi archivo.ts", "a\n// @ts-ignore\nb\n");
+    repo.write("src/ñandú.ts", "x\ntry { f(); } catch (e) {}\n");
+    repo.write("src/sql.ts", "++ new header-looking line\n-- another one\n");
+    const b = buildReview(p, new TaskService(p).get("task_1")!);
+    const byPath = Object.fromEntries(b.files.map((f) => [f.path, f]));
+    assert.equal(byPath["src/mi archivo.ts"]!.added, 2);
+    assert.ok(b.flags.some((f) => f.file === "src/mi archivo.ts" && /TypeScript/.test(f.message)));
+    assert.ok(b.flags.some((f) => f.file === "src/ñandú.ts" && /swallows/.test(f.message)));
+    assert.deepEqual([byPath["src/sql.ts"]!.added, byPath["src/sql.ts"]!.removed], [2, 2]);
+    p.close();
+  } finally {
+    repo.cleanup();
+  }
+});

@@ -1,7 +1,7 @@
 {
   "name": "agent-state",
   "description": "Never lose a coding session: verified task memory, automatic recovery after compaction, checkpoints, change maps and scope control. Local-first.",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "author": {
     "name": "Alejovar"
   },

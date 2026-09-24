@@ -62,22 +62,55 @@ const ADDED_LINE_RULES: { re: RegExp; severity: Severity; message: string; tests
   { re: /\bexpect\([^)]*\)\.(?:toBeTruthy|toBeDefined)\(\)\s*;?\s*$|assert\s+True\b/, severity: "low", message: "adds a very weak assertion", tests: true },
 ];
 
-/** Parses `git diff -U0` output into added / removed lines per file. */
+/** Decodes a path as git prints it in diff headers (C-style quoted when it has special characters). */
+function unquoteGitPath(p: string): string {
+  if (!p.startsWith('"')) return p;
+  const bytes: number[] = [];
+  const body = p.slice(1, -1);
+  for (let i = 0; i < body.length; i++) {
+    const ch = body[i]!;
+    if (ch !== "\\") {
+      bytes.push(...Buffer.from(ch, "utf8"));
+      continue;
+    }
+    const next = body[++i]!;
+    if (/[0-7]/.test(next)) {
+      bytes.push(parseInt(body.slice(i, i + 3), 8));
+      i += 2;
+    } else bytes.push(({ n: 10, t: 9, r: 13, '"': 34, "\\": 92 } as Record<string, number>)[next] ?? next.charCodeAt(0));
+  }
+  return Buffer.from(bytes).toString("utf8");
+}
+
+/**
+ * Parses `git diff -U0` output into added / removed lines per file. Header
+ * lines are only recognized between `diff --git` and the first hunk, so code
+ * lines that start with "++" or "--" are never mistaken for headers.
+ */
 function parseDiff(diff: string): Map<string, { added: string[]; removed: number }> {
   const files = new Map<string, { added: string[]; removed: number }>();
   let cur: { added: string[]; removed: number } | null = null;
+  let inHeader = false;
   for (const line of diff.split("\n")) {
-    if (line.startsWith("+++ ")) {
-      const p = line.slice(4).replace(/^b\//, "");
-      if (p === "/dev/null") {
-        cur = null;
-        continue;
-      }
-      cur = files.get(p) ?? { added: [], removed: 0 };
-      files.set(p, cur);
-    } else if (line.startsWith("--- ")) {
+    if (line.startsWith("diff --git ")) {
+      inHeader = true;
+      cur = null;
       continue;
-    } else if (cur && line.startsWith("+")) cur.added.push(line.slice(1));
+    }
+    if (inHeader) {
+      if (line.startsWith("+++ ")) {
+        // git appends a TAB after paths that contain spaces.
+        const raw = unquoteGitPath(line.slice(4).replace(/\t$/, ""));
+        if (raw !== "/dev/null") {
+          const p = raw.replace(/^b\//, "");
+          cur = files.get(p) ?? { added: [], removed: 0 };
+          files.set(p, cur);
+        }
+      } else if (line.startsWith("@@")) inHeader = false;
+      continue;
+    }
+    if (line.startsWith("@@")) continue;
+    if (cur && line.startsWith("+")) cur.added.push(line.slice(1));
     else if (cur && line.startsWith("-")) cur.removed++;
   }
   return files;
@@ -98,8 +131,9 @@ export function buildReview(project: Project, task: Task): ReviewBrief {
     if (base) {
       const raw = git.tryRun(["diff", "-U0", "--no-color", "--no-ext-diff", base, "--"]) ?? "";
       for (const [p, d] of parseDiff(raw)) diffs.set(p, d);
-      for (const l of (git.tryRun(["diff", "--numstat", base, "--"]) ?? "").split("\n")) {
-        const [, del, path] = l.split("\t");
+      // -z: paths are never quoted or escaped.
+      for (const rec of (git.tryRun(["diff", "--numstat", "-z", "--no-renames", base, "--"]) ?? "").split("\0")) {
+        const [, del, path] = rec.split("\t");
         if (path && del && del !== "-") deletedLines.set(path, Number(del));
       }
     }

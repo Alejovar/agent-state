@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.3
+
+- **Review brief:** files whose names contain spaces or non-ASCII characters (`mi archivo.ts`, `ñandú.ts`) are analyzed correctly. Git quotes such paths and appends a tab after names with spaces, so they were missed or counted as entirely new. Code lines that start with `++` or `--` are no longer mistaken for diff headers.
+
 ## 0.6.2
 
 - **Security: more secret formats are redacted before anything is written:** `curl -u user:password`, tokens used as the whole userinfo of a URL (`https://<token>@github.com/…`), `docker|podman|helm … login -p/--password`, `sshpass -p`, `az login … -p`, `redis-cli -a`, sensitive fields in JSON (`"password": "…"`) and hyphenated header names (`x-api-key`). Everyday flags like `mkdir -p`, `docker run -p 8080:80` and `ssh -p 2222` are left alone.
