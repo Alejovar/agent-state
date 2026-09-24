@@ -5,6 +5,7 @@ import { UsageError } from "./commands/types.js";
 import { ConfigBrokenError, NotInitializedError, Project } from "./core/project.js";
 import { configError } from "./core/config.js";
 import { nodeSupported } from "./core/runtime.js";
+import { importAiderHistory } from "./adapters/aider.js";
 import { CheckpointError } from "./core/checkpoint.js";
 import { GitError } from "./core/git.js";
 import { c } from "./ui/term.js";
@@ -79,7 +80,10 @@ async function main(argv: string[]): Promise<number> {
     return 0;
   }
   const cmd = findCommand(name);
-  if (cmd && name !== "hook") warnConfig();
+  if (cmd && name !== "hook") {
+    warnConfig();
+    syncAider();
+  }
   if (!cmd) {
     process.stderr.write(`Unknown command "${name}".\n\n${help()}\n`);
     return 2;
@@ -89,6 +93,19 @@ async function main(argv: string[]): Promise<number> {
     return 0;
   }
   return await cmd.run(rest);
+}
+
+/** Aider has no hooks: pull in whatever it appended to its chat history since last time. */
+function syncAider(): void {
+  const p = Project.tryOpen();
+  if (!p) return;
+  try {
+    if (!p.configProblem) importAiderHistory(p);
+  } catch (err) {
+    process.stderr.write(`${c.yellow("⚠ could not import the Aider chat history:")} ${(err as Error).message}\n`);
+  } finally {
+    p.close();
+  }
 }
 
 function warnConfig(): void {

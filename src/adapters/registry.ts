@@ -4,6 +4,7 @@ import { claudeCode } from "./claude-code.js";
 import { codex } from "./codex.js";
 import { cursor } from "./cursor.js";
 import { gemini } from "./gemini.js";
+import { aider } from "./aider.js";
 import { UsageError } from "../commands/types.js";
 
 const generic: AgentAdapter = {
@@ -17,6 +18,7 @@ export const ADAPTERS: Record<string, AgentAdapter> = {
   cursor,
   "gemini-cli": gemini,
   codex,
+  aider,
   generic,
 };
 

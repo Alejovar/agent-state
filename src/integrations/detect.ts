@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-export type AgentKind = "claude-code" | "cursor" | "gemini-cli" | "codex";
+export type AgentKind = "claude-code" | "cursor" | "gemini-cli" | "codex" | "aider";
 
 export interface DetectedAgent {
   id: AgentKind;
@@ -26,6 +26,7 @@ const CANDIDATES: { id: AgentKind; name: string; bins: string[]; dirs: string[] 
   { id: "cursor", name: "Cursor", bins: ["cursor", "cursor-agent"], dirs: [".cursor"] },
   { id: "gemini-cli", name: "Gemini CLI", bins: ["gemini"], dirs: [".gemini"] },
   { id: "codex", name: "Codex CLI", bins: ["codex"], dirs: [".codex"] },
+  { id: "aider", name: "Aider", bins: ["aider"], dirs: [] },
 ];
 
 /** Agents installed on this machine: a binary on PATH or its config directory in $HOME. */

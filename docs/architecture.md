@@ -121,6 +121,7 @@ Recovery repeats steps 1–5 against the repository *now*, then diffs against th
 | `cursor.ts` | Cursor hooks (`.cursor/hooks.json`, v1) | next `postToolUse` → `additional_context` |
 | `gemini.ts` | Gemini CLI hooks (`.gemini/settings.json`) | next `BeforeAgent`/`AfterTool` → `additionalContext` |
 | `codex.ts` | Codex `notify` | n/a (turn notifications only) |
+| `aider.ts` | `.aider.chat.history.md`, imported incrementally by byte offset | recovery passed as `aider --read <file>` |
 
 ## Claude Code integration boundary
 
@@ -133,3 +134,11 @@ Only documented hook events and fields are used. The token estimate for context 
 ## Static analysis
 
 `index/parsers.ts` strips comments and extracts imports, symbols and routes for TS/JS (plus Vue/Svelte scripts), Python, Go, Rust, Ruby, Java/Kotlin, PHP and C/C++. `index/resolve.ts` resolves relative imports, extensionless and `.js→.ts` specifiers, `tsconfig` `paths`/`baseUrl`, Python packages (including `src/` layouts), Go module paths and Rust `mod`/`crate::` paths. The index is incremental: size+mtime first, then a content hash, so only changed files are parsed. Edges are recomputed from stored imports, which is cheap and needs no file IO.
+
+## Symbol-level impact
+
+`index/symbols.ts` finds, for each file that imports the target, the local bindings of the target's exports (named, aliased, default, namespace, `require`, Python `from … import`), then every use of those bindings and its enclosing function. With `@vscode/tree-sitter-wasm` installed it walks real syntax trees (TypeScript, TSX, JavaScript, Python); otherwise a comment- and string-aware scanner is used. Both engines are tested against the same fixtures.
+
+## Team sharing
+
+`core/team.ts` builds a snapshot (recovery states minus verbatim prompts and notes, plus decision files, re-redacted) with a temporary index, commits it with the previous share as parent and pushes `refs/agent-state/shared/<name>`. `team` fetches `refs/agent-state/shared/*` into `refs/agent-state/team/*` and reads manifests with `git show`. No branch, working tree or index of the user is touched.

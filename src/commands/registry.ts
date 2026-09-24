@@ -9,6 +9,7 @@ import { hook, event, integrate } from "./hook.js";
 import { history, decisions, why } from "./history.js";
 import { scope } from "./scope.js";
 import { review } from "./review.js";
+import { share, team } from "./team.js";
 import { drift } from "./drift.js";
 import { replay, sessionsCmd, worktrees } from "./replay.js";
 
@@ -38,6 +39,8 @@ export const COMMANDS: Command[] = [
   worktrees,
   scope,
   integrate,
+  share,
+  team,
   hook,
   event,
   adaptersCmd,

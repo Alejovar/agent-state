@@ -46,6 +46,12 @@ export interface Config {
     /** Regular expressions matching commands that run tests. Built-ins cover common runners. */
     commands: string[];
   };
+  sync: {
+    /** Git remote used by `agent-state share` / `team`. */
+    remote: string;
+    /** Name other people see (defaults to the local part of your git email). */
+    name?: string;
+  };
   ai: {
     /** none | anthropic | openai-compatible | command */
     provider: "none" | "anthropic" | "openai-compatible" | "command";
@@ -68,6 +74,7 @@ export const DEFAULT_CONFIG: Config = {
   redaction: { patterns: [] },
   privacy: { record_prompts: true, max_output_chars: 2000 },
   tests: { commands: [] },
+  sync: { remote: "origin" },
   ai: { provider: "none", timeout_ms: 60_000 },
 };
 
@@ -136,6 +143,10 @@ privacy:
 
 tests:
   commands: []           # extra regexes that identify test commands
+
+sync:                    # only used by the explicit \`agent-state share\` / \`team\` commands
+  remote: origin
+  # name: alex            # how teammates see you (default: your git email's local part)
 
 ai:
   provider: none         # none | anthropic | openai-compatible | command

@@ -2,6 +2,7 @@ import { Project } from "../core/project.js";
 import { toProjectPath } from "../core/paths.js";
 import { ProjectIndex } from "../index/indexer.js";
 import { impact as analyzeImpact, overview, search } from "../index/analysis.js";
+import { symbolUsages } from "../index/symbols.js";
 import { c } from "../ui/term.js";
 import { type Command, parse, out, json, UsageError } from "./types.js";
 
@@ -14,13 +15,13 @@ agent-state index <query>               find files by concept/path/symbol/route 
 agent-state index impact <file>         same as \`agent-state impact <file>\`
 agent-state index --rebuild             drop and rebuild the index
 Options: --json`,
-  run(argv) {
+  async run(argv) {
     const { values, positionals } = parse(argv, { json: { type: "boolean" }, rebuild: { type: "boolean" }, limit: { type: "string" } });
     const project = Project.open();
     const idx = new ProjectIndex(project);
     if (values.rebuild) project.db().raw.exec("DELETE FROM idx_files; DELETE FROM idx_edges;");
     const st = idx.update();
-    if (positionals[0] === "impact") return impactCmd.run([...positionals.slice(1), ...(values.json ? ["--json"] : [])]);
+    if (positionals[0] === "impact") return await impactCmd.run([...positionals.slice(1), ...(values.json ? ["--json"] : [])]);
     if (positionals.length) {
       const hits = search(idx, positionals.join(" "), Number(values.limit ?? 25));
       if (values.json) return json(hits), 0;
@@ -52,9 +53,13 @@ export const impactCmd: Command = {
   name: "impact",
   group: "Intelligence",
   summary: "What depends on a file: importers, tests, routes, config, affected areas",
-  usage: "agent-state impact <file> [--json]",
-  run(argv) {
-    const { values, positionals } = parse(argv, { json: { type: "boolean" } });
+  usage: `agent-state impact <file> [--symbol <name>] [--json]
+
+  Files that depend on <file> (transitively), and which functions in them use
+  each name it exports. Uses tree-sitter when @vscode/tree-sitter-wasm is
+  installed (npm i -g @vscode/tree-sitter-wasm), a built-in parser otherwise.`,
+  async run(argv) {
+    const { values, positionals } = parse(argv, { json: { type: "boolean" }, symbol: { type: "string", short: "s" } });
     if (!positionals[0]) throw new UsageError(impactCmd.usage);
     const project = Project.open();
     const path = toProjectPath(project.root, positionals[0], process.cwd());
@@ -62,7 +67,10 @@ export const impactCmd: Command = {
     const idx = new ProjectIndex(project);
     idx.update();
     const r = analyzeImpact(project, idx, path);
-    if (values.json) return json(r), 0;
+    const direct = r.used_by.filter((u) => u.depth === 1).map((u) => ({ path: u.path, imports: idx.file(u.path)?.imports ?? [] }));
+    const sym = await symbolUsages(project.root, path, direct, idx.all().map((f) => f.path));
+    const usages = values.symbol ? sym.usages.filter((u) => u.symbol === values.symbol) : sym.usages;
+    if (values.json) return json({ ...r, symbol_usages: usages, symbol_engine: sym.engine }), 0;
     if (!r.exists && !r.indexed) throw new UsageError(`${path} does not exist in the project.`);
     out(c.bold(path) + c.dim(`  [${r.role}]${r.symbols.length ? ` defines ${r.symbols.slice(0, 6).join(", ")}${r.symbols.length > 6 ? ", …" : ""}` : ""}`));
     out("");
@@ -70,6 +78,18 @@ export const impactCmd: Command = {
     if (!r.used_by.length) out(c.dim("  (no importers found)"));
     for (const u of r.used_by.slice(0, 30)) out(`  ${"  ".repeat(u.depth - 1)}${u.path}${u.depth > 1 ? c.dim(` (indirect, depth ${u.depth})`) : ""}`);
     if (r.used_by.length > 30) out(c.dim(`  … ${r.used_by.length - 30} more`));
+    if (usages.length || values.symbol) {
+      out("");
+      out(`Used where ${c.dim(`(${sym.engine === "tree-sitter" ? "tree-sitter" : "built-in parser"})`)}:`);
+      if (!usages.length) out(c.dim(`  no usages of ${values.symbol} found in direct importers`));
+      const bySymbol = new Map<string, typeof usages>();
+      for (const u of usages) bySymbol.set(u.symbol, [...(bySymbol.get(u.symbol) ?? []), u]);
+      for (const [name, list] of bySymbol) {
+        out(`  ${c.bold(name === "*" ? "(whole module)" : name)} ${c.dim(`${list.length} use(s)`)}`);
+        for (const u of list.slice(0, 12)) out(`    ${u.file}:${u.line}${u.in ? c.dim(` in ${u.in}()`) : c.dim(" at module level")}`);
+        if (list.length > 12) out(c.dim(`    … ${list.length - 12} more`));
+      }
+    }
     if (r.imports.length) {
       out("");
       out("Imports:");

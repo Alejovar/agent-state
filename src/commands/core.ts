@@ -11,6 +11,7 @@ import { activeLimits } from "../core/limits.js";
 import { box, c, ago, kv, formatBytes, confirm } from "../ui/term.js";
 import { gitAvailable } from "../core/git.js";
 import { nodeSupported } from "../core/runtime.js";
+import { treeSitterAvailable } from "../index/symbols.js";
 import { isOurHook, hookConfig } from "../integrations/claude.js";
 import { cursorHooks, geminiHooks } from "../integrations/others.js";
 import { homedir } from "node:os";
@@ -60,6 +61,9 @@ export const init: Command = {
     const unstable = lines.filter((l) => l.startsWith("Hooks call "));
     for (const l of lines.filter((l) => !l.startsWith("Hooks call "))) out(`${c.green("✓")} ${l}`);
     if (unstable.length) out(c.yellow(`  ⚠ ${unstable[0]!.replace(/ for a stable path\.$/, "")} — install it globally (npm i -g agent-state) so the hooks keep working if this folder moves.`));
+    if (targets.includes("aider")) {
+      out(`${c.green("✓")} Aider: nothing to install; its chat history (.aider.chat.history.md) is imported automatically`);
+    }
     if (targets.includes("codex")) {
       out(`${c.yellow("•")} Codex CLI: add ${c.cyan('notify = ["agent-state", "hook", "codex"]')} to ~/.codex/config.toml (global file, so agent-state won't edit it for you)`);
     }
@@ -216,7 +220,7 @@ export const doctor: Command = {
   group: "Core",
   summary: "Check installation, integrations and state health",
   usage: "agent-state doctor",
-  run() {
+  async run() {
     const ok = (s: string) => out(`${c.green("✓")} ${s}`);
     const warn = (s: string) => out(`${c.yellow("⚠")} ${s}`);
     if (nodeSupported()) ok(`Node ${process.versions.node}`);
@@ -301,6 +305,7 @@ export const doctor: Command = {
         out(c.dim(`  full log: ${errLog}`));
       }
     }
+    out(kv("Impact engine", (await treeSitterAvailable(project.root)) ? "tree-sitter" : c.dim("built-in parser (for tree-sitter: npm i -g @vscode/tree-sitter-wasm)")));
     const ai = project.config.ai;
     out(kv("AI provider", ai.provider === "none" ? c.dim("none (deterministic only, nothing leaves this machine)") : `${ai.provider}${ai.model ? ` · ${ai.model}` : ""}`));
     const tasks = new TaskService(project).list();

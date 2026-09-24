@@ -5,7 +5,7 @@
 **Your AI coding session just ran out of context. Continue exactly where it stopped, verified against your repo, in seconds.**
 
 Local-first working memory, recovery and control for AI coding agents.<br>
-Works with **Claude Code**, **Cursor**, **Gemini CLI** and **Codex**, and agent-agnostic by design.
+Works with **Claude Code**, **Cursor**, **Gemini CLI**, **Codex** and **Aider**, and agent-agnostic by design.
 
 [![CI](https://github.com/Alejovar/agent-state/actions/workflows/ci.yml/badge.svg)](https://github.com/Alejovar/agent-state/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/agent-state.svg)](https://www.npmjs.com/package/agent-state)
@@ -29,14 +29,14 @@ agent-state runs next to your coding agent and keeps the task's working memory, 
 - 🔍 **Review the agent's work in 30 seconds.** What was asked, what changed, why, and how it was verified, with flags for skipped tests, silenced errors, new dependencies and more.
 - 💾 **Undo safely.** Checkpoints of uncommitted work, restored with a preview and an automatic backup.
 
-Local only, no telemetry, secrets redacted before anything is written. Works with **Claude Code**, **Cursor**, **Gemini CLI** and **Codex**, on Linux, macOS and Windows.
+Local only, no telemetry, secrets redacted before anything is written. Works with **Claude Code**, **Cursor**, **Gemini CLI**, **Codex** and **Aider**, on Linux, macOS and Windows.
 
 ## Quickstart
 
 ```bash
 npm install -g --allow-git=all github:Alejovar/agent-state   # Node ≥ 22.13, no native deps
 cd your-project
-agent-state init        # detects Claude Code, Cursor, Gemini CLI and Codex, and hooks into each
+agent-state init        # detects Claude Code, Cursor, Gemini CLI, Codex and Aider, and hooks into each
 ```
 
 > The npm release (`npm install -g agent-state`) is coming in a few days. Until then, install from GitHub as shown above.
@@ -169,13 +169,14 @@ It is deterministic (git + recorded activity). The flags are heuristics that poi
 | 🧠 | `compact` · `recover` · `continue` · `handoff` | Compact state → verified recovery → resume the agent. Also available as `/recover` and `/handoff` in Claude Code |
 | 💾 | `checkpoint` · `checkpoints` · `restore` | Snapshots of the working tree, staged changes, untracked files and task state, stored as private git objects. Restore shows a dry-run and conflicts, asks first, and **takes an automatic backup** so a restore can be undone. It never moves HEAD |
 | 🗺 | `changes` | Change map: direct, created, deleted, **indirectly affected** (via the import graph), tests, config, infra, docs, dependency diffs |
-| 💥 | `impact <file>` | Transitive importers, covering tests, affected routes, config references, affected areas |
+| 💥 | `impact <file> [--symbol name]` | Transitive importers, **which functions use each exported symbol and where**, covering tests, affected routes, config references. Built-in parser, or tree-sitter when `@vscode/tree-sitter-wasm` is installed |
 | 🔎 | `index [query]` | Incremental project index: languages, frameworks, databases, services, entrypoints, modules, APIs, infra, tests. Concept search (`index authentication` finds `session.ts`) |
 | 📜 | `history` · `replay` · `sessions` | Search activity by keyword, file, task, session, date or type. Replay a session as request → actions → files → tests → decisions → result |
 | 🧭 | `decide` · `decisions` · `why <file>` | Decision ledger. `why` links a file to its decisions, tasks, originating requests and commits |
 | 🚧 | `scope` | Task contracts (intent ledger): allowed/restricted globs, with a `warn`/`confirm`/`block` policy enforced on the agent's edits in real time |
 | 🧪 | `drift` | Finds contradictions between CLAUDE.md or docs and the code: dead paths, missing scripts, wrong package manager, "uses JWT" when the repo uses Redis sessions |
 | 🌳 | `worktrees` | Which task and agent is active in each git worktree (parallel agents) |
+| 👥 | `share` · `team` · `recover --from` | Opt-in team sharing through your own git remote: recovery states and decisions only, never prompts or the event log, shown before sending |
 
 <details>
 <summary><b>Example: scope control</b></summary>
@@ -214,19 +215,18 @@ Used by:
     src/routes/private.ts (indirect, depth 2)
       src/index.ts (indirect, depth 3)
 
+Used where (tree-sitter):
+  createSession 4 use(s)
+    src/auth/google.ts:2 in googleLogin()
+    src/auth/oauth.ts:2 in googleCallback()
+    src/middleware/auth.ts:2 in requireAuth()
+    tests/auth/session.test.ts:3 at module level
+
 Tests:
   tests/auth/session.test.ts
 
 Routes:
   GET    /account src/routes/private.ts
-
-Potential impact (inferred from dependents' paths and routes):
-  auth
-  session
-  google
-  middleware
-  routes
-  login
 ```
 </details>
 
@@ -279,9 +279,21 @@ agent-state note next "Add TTL to OAuth state keys"
 | **Cursor** | `agent-state init --cursor` → `.cursor/hooks.json` | prompts, file writes/edits/deletes, shell commands with exit codes, tests, subagents. `preCompact` saves state with the **exact** context usage and the next tool result carries it back. Scope policy enforced on edits |
 | **Gemini CLI** | `agent-state init --gemini` → `.gemini/settings.json` | prompts, `write_file`/`replace`, `run_shell_command` (exit codes, tests), `write_todos`. `PreCompress` saves state and the next turn re-injects it; `SessionStart` (`resume`/`clear`) injects it too. Scope policy enforced on edits |
 | **Codex CLI** | `notify = ["agent-state", "hook", "codex"]` in `~/.codex/config.toml` | turns and requests; file changes come from git |
+| **Aider** | nothing to install | Aider has no hooks, so its chat history (`.aider.chat.history.md`) is imported incrementally whenever you run a command: sessions, requests, edits, commands. `continue --agent aider` opens Aider with the recovery context as a read-only file (`--read`) |
 | **Anything else** | `agent-state event FILE_MODIFIED --json '{"path":"src/a.ts"}' --agent aider` | whatever you send; `agent-state recover --agent generic` prints plain-text context |
 
 Every hook-based adapter is a thin translation layer over one shared, agent-neutral session core ([`session-core.ts`](src/adapters/session-core.ts)). Adding an agent means mapping its payloads, not re-implementing recovery. PRs are welcome.
+
+## Share a task with your team (opt-in)
+
+```bash
+agent-state share --dry-run     # shows exactly which files would be sent
+agent-state share               # pushes refs/agent-state/shared/<you> to your git remote
+agent-state team                # a teammate lists what people shared
+agent-state recover --from alex 1   # …and hands alex's task #1 to their agent
+```
+
+Nothing is shared automatically. Only recovery states and decisions travel, in a private ref on the project's own remote (your branches are never touched, no third-party server). Verbatim prompts, free-form notes and the event log never leave your machine.
 
 ## Privacy & security
 
@@ -340,9 +352,9 @@ The repository wins. Recovery re-verifies files, branch, HEAD and dependencies a
 - [x] Context intelligence: drift, optional AI summaries, handoff, provider abstraction
 - [x] Advanced agents: replay, multi-agent sessions and subagents, worktrees, Codex adapter
 - [x] Cursor and Gemini CLI adapters
-- [ ] Aider adapter
-- [ ] Tree-sitter based analysis for deeper impact graphs
-- [ ] Opt-in team sync of recovery states
+- [x] Aider adapter
+- [x] Symbol-level impact (built-in parser, tree-sitter when installed)
+- [x] Opt-in team sharing of recovery states
 
 ## Contributing
 

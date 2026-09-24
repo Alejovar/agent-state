@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.0
+
+Completes the roadmap.
+
+- **Aider adapter.** Aider has no hooks, so its chat history (`.aider.chat.history.md`, in the format written by `aider/io.py`) is imported incrementally whenever any agent-state command runs: sessions, requests (multi-line included), edits and commands. Command exit status is recorded as unknown, never guessed. `init` detects Aider; `continue --agent aider` opens it with the recovery context as a read-only file (`aider --read`); Aider is also a usage-limit handoff target.
+- **Symbol-level impact.** `impact <file>` now lists which functions in other files use each exported name, and where (`createSession → src/auth/google.ts:2 in googleLogin()`), following aliases, namespace imports, `require`, methods and arrow functions, and ignoring strings and comments. `--symbol <name>` narrows it. It uses tree-sitter when `@vscode/tree-sitter-wasm` is installed (globally or in the project; ~22 MB, so never a dependency), and a built-in parser otherwise. `doctor` shows which engine is active.
+- **Opt-in team sharing.** `share` pushes your unfinished tasks' recovery states and your decisions to a private ref on the project's git remote (`refs/agent-state/shared/<you>`), after showing exactly what will be sent (`--dry-run`; `--yes` is required in non-interactive shells). `team` lists what teammates shared; `recover --from <name> <task>` hands one to your agent. Verbatim prompts, free-form notes and the event log are never shared.
+
 ## 0.6.4
 
 Audit of the index, scope and drift.

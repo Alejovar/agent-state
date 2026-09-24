@@ -1,6 +1,6 @@
 {
   "name": "agent-state",
-  "version": "0.6.4",
+  "version": "0.7.0",
   "description": "Local-first memory, recovery and control layer for AI coding agents (Claude Code, Cursor, Gemini CLI, Codex). Lose your session, recover the working context in seconds.",
   "type": "module",
   "bin": {
@@ -28,6 +28,7 @@
   "keywords": [
     "agents",
     "ai",
+    "aider",
     "checkpoint",
     "claude-code",
     "cli",
@@ -38,7 +39,8 @@
     "gemini-cli",
     "llm",
     "memory",
-    "recovery"
+    "recovery",
+    "tree-sitter"
   ],
   "author": "Alejovar",
   "license": "MIT",
@@ -55,6 +57,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.19.0",
+    "@vscode/tree-sitter-wasm": "^0.3.1",
     "typescript": "^5.9.0"
   },
   "optionalDependencies": {

@@ -11,6 +11,7 @@ import { aiSummary } from "../ai/enhance.js";
 import { c, confirm, formatBytes, ago } from "../ui/term.js";
 import { activeLimits } from "../core/limits.js";
 import { withCli } from "../core/invocation.js";
+import { teammateRecovery } from "../core/team.js";
 import { type Command, parse, out, err, json, UsageError } from "./types.js";
 import { cliAttribution, resolveTask } from "./context.js";
 
@@ -60,6 +61,7 @@ export const recover: Command = {
   group: "Recovery",
   summary: "Rebuild verified recovery context for a task (prints Markdown for an agent)",
   usage: `agent-state recover [task-id] [--json] [--agent claude-code|codex|generic] [--max-bytes N] [--raw]
+agent-state recover --from <teammate> <task-id>   a teammate's shared task (see \`agent-state team\`)
 
   Verifies the saved recovery state against git and the filesystem, reports
   conflicts (the repository wins), and prints context ready to hand to an agent.
@@ -70,8 +72,17 @@ export const recover: Command = {
       agent: { type: "string" },
       "max-bytes": { type: "string" },
       raw: { type: "boolean" },
+      from: { type: "string" },
     });
     const project = Project.open();
+    if (values.from) {
+      if (!positionals[0]) throw new UsageError("Usage: agent-state recover --from <teammate> <task-id>");
+      const md = teammateRecovery(project, values.from, Number(positionals[0].replace(/^#|^task_/, "")));
+      if (!md) throw new UsageError(`${values.from} has not shared task ${positionals[0]}. Run \`agent-state team\` to fetch and list shared tasks.`);
+      const note = `You are picking up task #${positionals[0].replace(/^#|^task_/, "")} from your teammate ${values.from}. This is their shared state; verify it against the repository (their branch may differ from yours).`;
+      process.stdout.write(withCli(values.raw ? md : `${note}\n\n${md}`));
+      return 0;
+    }
     const t = resolveTask(project, positionals[0])!;
     const maxBytes = values["max-bytes"] ? Number(values["max-bytes"]) : undefined;
     if (maxBytes !== undefined && (!Number.isFinite(maxBytes) || maxBytes < 500)) throw new UsageError("--max-bytes must be a number ≥ 500");
@@ -118,7 +129,7 @@ export const cont: Command = {
   name: "continue",
   group: "Recovery",
   summary: "Resume the latest unfinished task: verify, show what will be restored, start the agent",
-  usage: `agent-state continue [task-id] [--agent claude-code|codex|gemini-cli|cursor|generic] [--print] [--yes]
+  usage: `agent-state continue [task-id] [--agent claude-code|codex|gemini-cli|aider|cursor|generic] [--print] [--yes]
 
   If Claude Code recently stopped on its usage limit and no --agent is given,
   the task continues in another installed agent (Codex, then Gemini CLI).
@@ -196,7 +207,7 @@ export const cont: Command = {
 };
 
 /** Where a task goes when Claude Code is out of quota, in order of preference. */
-const HANDOFF_ORDER = ["codex", "gemini-cli"];
+const HANDOFF_ORDER = ["codex", "gemini-cli", "aider"];
 
 function hasBinary(cmd: string): boolean {
   if (!cmd) return false;
